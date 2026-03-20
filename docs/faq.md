@@ -67,7 +67,11 @@ No. Redis is required for the outbox queue, distributed locking, and poller coor
 
 For zero-downtime upgrades, run migrations first, then do a rolling update of your containers. See [Production](production.md) for the full procedure.
 
-## 10. Where do I get help?
+## 10. Why do the Alembic migrations skip from 010 to 015?
+
+Migrations 011 through 014 are SaaS-specific (billing, usage tiers, multi-tenant features) and are not included in the open-source core. The gap is intentional. Alembic tracks migrations by revision ID, not by filename number, so the gap has no effect on `alembic upgrade head`. Your database will apply 001-010, then 015-016 in order. Do not create your own 011-014 migrations -- use sequential numbers starting after the highest existing migration (e.g., 017, 018).
+
+## 11. Where do I get help?
 
 - **GitHub Issues:** [github.com/govindkavaturi-art/cueapi-core/issues](https://github.com/govindkavaturi-art/cueapi-core/issues) -- for bug reports and feature requests.
 - **Discussions:** Use GitHub Discussions for questions and community help.

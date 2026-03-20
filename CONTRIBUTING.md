@@ -30,8 +30,9 @@ Or without Make:
 
 ```bash
 docker compose -f docker-compose.test.yml up -d
-DATABASE_URL=postgresql+asyncpg://cueapi:cueapi@localhost:5433/cueapi_test \
-  REDIS_URL=redis://localhost:6380/0 \
+DATABASE_URL=postgresql+asyncpg://cueapi:password@localhost:5432/cueapi \
+  REDIS_URL=redis://localhost:6379 \
+  SESSION_SECRET=test-secret-key-32-chars-minimum \
   python -m pytest tests/ -v
 ```
 

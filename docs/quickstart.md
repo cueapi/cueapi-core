@@ -48,7 +48,7 @@ Expected response:
 {
   "id": "usr_...",
   "email": "you@example.com",
-  "api_key": "cue_live_..."
+  "api_key": "cue_sk_..."
 }
 ```
 
@@ -61,11 +61,17 @@ Create a cue that fires every hour and sends a POST to your callback URL:
 ```bash
 curl -X POST http://localhost:8000/v1/cues \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer cue_live_..." \
+  -H "Authorization: Bearer cue_sk_..." \
   -d '{
-    "title": "Hourly ping",
-    "schedule": "0 * * * *",
-    "url": "https://example.com/webhook",
+    "name": "hourly-ping",
+    "schedule": {
+      "type": "recurring",
+      "cron": "0 * * * *",
+      "timezone": "UTC"
+    },
+    "callback": {
+      "url": "https://example.com/webhook"
+    },
     "payload": {"message": "hello from cueapi"}
   }'
 ```
@@ -75,12 +81,30 @@ Expected response:
 ```json
 {
   "id": "cue_...",
-  "title": "Hourly ping",
-  "schedule": "0 * * * *",
-  "url": "https://example.com/webhook",
-  "payload": {"message": "hello from cueapi"},
+  "name": "hourly-ping",
   "status": "active",
-  "next_fire_at": "2025-01-01T01:00:00Z"
+  "transport": "webhook",
+  "schedule": {
+    "type": "recurring",
+    "cron": "0 * * * *",
+    "timezone": "UTC"
+  },
+  "callback": {
+    "url": "https://example.com/webhook",
+    "method": "POST",
+    "headers": {}
+  },
+  "payload": {"message": "hello from cueapi"},
+  "retry": {
+    "max_attempts": 3,
+    "backoff_minutes": [1, 5, 15]
+  },
+  "next_run": "2025-01-01T01:00:00Z",
+  "last_run": null,
+  "run_count": 0,
+  "fired_count": 0,
+  "created_at": "2025-01-01T00:00:00Z",
+  "updated_at": "2025-01-01T00:00:00Z"
 }
 ```
 
@@ -88,23 +112,24 @@ Expected response:
 
 ```bash
 curl http://localhost:8000/v1/cues \
-  -H "Authorization: Bearer cue_live_..."
+  -H "Authorization: Bearer cue_sk_..."
 ```
 
 Expected response:
 
 ```json
 {
-  "items": [
+  "cues": [
     {
       "id": "cue_...",
-      "title": "Hourly ping",
-      "schedule": "0 * * * *",
+      "name": "hourly-ping",
       "status": "active",
-      "next_fire_at": "2025-01-01T01:00:00Z"
+      "next_run": "2025-01-01T01:00:00Z"
     }
   ],
-  "total": 1
+  "total": 1,
+  "limit": 50,
+  "offset": 0
 }
 ```
 

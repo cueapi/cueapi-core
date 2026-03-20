@@ -124,4 +124,12 @@ docker compose up -d --no-deps --build web poller
 
 **API keys.** API keys are bearer tokens. Treat them like passwords. Store them in environment variables or a secrets manager, not in code or config files.
 
-**Rate limiting.** CueAPI does not include built-in rate limiting. Configure rate limits at your reverse proxy layer to protect against abuse.
+**Rate limiting.** CueAPI includes built-in rate limiting middleware (`app/middleware/rate_limit.py`) using a Redis-backed sliding window. Default behavior:
+
+- **Authenticated requests:** 60 requests per minute per API key. Tier-specific limits are read from the user's auth cache if available.
+- **Unauthenticated requests:** 60 requests per minute per IP address.
+- **Exempt paths:** `/health`, `/status`, `/docs`, `/openapi.json`, `/v1/billing/webhook`, `/v1/blog/*`, `/v1/internal/*`
+- **Response headers:** `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and `Retry-After` (on 429).
+- **Graceful degradation:** If Redis is unavailable, rate limiting is skipped and all requests are allowed.
+
+For additional protection (e.g., DDoS mitigation, geo-blocking), configure rate limits at your reverse proxy layer as well.
