@@ -1,0 +1,46 @@
+name: Argus QA Gate
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  trigger-argus:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for Railway deploy
+        run: sleep 90
+
+      - name: Create Argus test-cueapi-core cue
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST https://api.cueapi.ai/v1/cues \
+            -H "Authorization: Bearer ${{ secrets.ARGUS_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "name": "test-cueapi-core-${{ github.sha }}",
+              "schedule": {
+                "type": "once",
+                "at": "'$(date -u -d '+10 seconds' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+10S +%Y-%m-%dT%H:%M:%SZ)'"
+              },
+              "transport": "worker",
+              "payload": {
+                "task": "test-cueapi-core",
+                "commit": "${{ github.sha }}",
+                "repo": "cueapi-core",
+                "branch": "${{ github.ref_name }}"
+              }
+            }')
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+          echo "Response: $BODY"
+          echo "HTTP status: $HTTP_CODE"
+          if [ "$HTTP_CODE" != "201" ]; then
+            echo "Failed to create Argus cue: $HTTP_CODE"
+            exit 1
+          fi
+          CUE_ID=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          echo "Argus cue created: $CUE_ID"
+          echo "CUE_ID=$CUE_ID" >> $GITHUB_ENV
+
+      - name: Report cue ID
+        run: echo "Argus will pick up cue $CUE_ID within 15s and run the full test suite."
