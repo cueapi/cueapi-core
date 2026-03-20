@@ -4,7 +4,6 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
-import resend
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -168,8 +167,9 @@ async def submit_email(db: AsyncSession, device_code: str, email: str) -> dict:
         print(f"{magic_link}")
         print(f"{'='*60}\n")
     else:
-        # Send via Resend
+        # Send via Resend (if installed)
         try:
+            import resend
             resend.api_key = settings.RESEND_API_KEY
             body_html = (
                 email_paragraph("Click the button below to complete your sign-in.")
@@ -189,6 +189,8 @@ async def submit_email(db: AsyncSession, device_code: str, email: str) -> dict:
                 "Magic link email sent",
                 extra={"event_type": "magic_link_sent", "email": email},
             )
+        except ImportError:
+            logger.warning("resend package not installed — magic link email not sent for %s", email)
         except Exception as e:
             logger.error(
                 f"Failed to send magic link email: {e}",
