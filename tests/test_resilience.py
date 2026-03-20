@@ -79,7 +79,7 @@ async def test_stale_worker_execution_requeued(client, registered_user, db_sessi
     cue_id = create_resp.json()["id"]
 
     # Inject a pending execution
-    execution_id = f"exec_{uuid.uuid4().hex}"
+    execution_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     db_session.add(Execution(
         id=execution_id, cue_id=cue_id,
@@ -93,7 +93,7 @@ async def test_stale_worker_execution_requeued(client, registered_user, db_sessi
     claimable = await client.get("/v1/executions/claimable", headers=headers)
     assert claimable.status_code == 200
     items = claimable.json().get("executions", claimable.json().get("items", []))
-    ids = [e["id"] for e in items]
+    ids = [e.get("execution_id", e.get("id")) for e in items]
     assert execution_id in ids, (
         f"Pending execution {execution_id} not in claimable list: {ids}"
     )
@@ -117,7 +117,7 @@ async def test_worker_reconnects_after_crash(client, registered_user, db_session
     cue_id = create_resp.json()["id"]
 
     # Inject execution
-    execution_id = f"exec_{uuid.uuid4().hex}"
+    execution_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     db_session.add(Execution(
         id=execution_id, cue_id=cue_id,
@@ -166,7 +166,7 @@ async def test_double_outcome_rejected(client, registered_user, db_session):
     assert create_resp.status_code == 201
     cue_id = create_resp.json()["id"]
 
-    execution_id = f"exec_{uuid.uuid4().hex}"
+    execution_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     db_session.add(Execution(
         id=execution_id, cue_id=cue_id,

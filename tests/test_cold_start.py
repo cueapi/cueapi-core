@@ -157,7 +157,7 @@ async def test_outcome_reporting(client, registered_user, db_session):
     import json
 
     api_key = registered_user["api_key"]
-    user_id = registered_user["id"]
+    assert "email" in registered_user
     headers = {"Authorization": f"Bearer {api_key}"}
 
     # Create a worker cue
@@ -171,7 +171,7 @@ async def test_outcome_reporting(client, registered_user, db_session):
     cue_id = create_resp.json()["id"]
 
     # Insert a claimable execution directly
-    execution_id = f"exec_{uuid.uuid4().hex}"
+    execution_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     execution = Execution(
         id=execution_id,
@@ -222,7 +222,7 @@ async def test_execution_history(client, registered_user, db_session):
     cue_id = create_resp.json()["id"]
 
     # Insert execution
-    execution_id = f"exec_{uuid.uuid4().hex}"
+    execution_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     execution = Execution(
         id=execution_id,
@@ -278,7 +278,7 @@ async def test_worker_transport_end_to_end(client, registered_user, db_session):
     assert create_resp.json()["transport"] == "worker"
 
     # 2. Inject claimable execution
-    execution_id = f"exec_{uuid.uuid4().hex}"
+    execution_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     db_session.add(Execution(
         id=execution_id,
@@ -295,7 +295,7 @@ async def test_worker_transport_end_to_end(client, registered_user, db_session):
     claimable_resp = await client.get("/v1/executions/claimable", headers=headers)
     assert claimable_resp.status_code == 200
     items = claimable_resp.json().get("executions", claimable_resp.json().get("items", []))
-    ids = [e["id"] for e in items]
+    ids = [e.get("execution_id", e.get("id")) for e in items]
     assert execution_id in ids, f"Execution not in claimable list: {ids}"
 
     # 4. Claim
@@ -305,13 +305,13 @@ async def test_worker_transport_end_to_end(client, registered_user, db_session):
         json={"worker_id": "argus-worker-001"},
     )
     assert claim_resp.status_code == 200
-    assert claim_resp.json()["status"] in ("claimed", "delivering")
+    assert claim_resp.json().get("claimed") is True or claim_resp.json().get("status") in ("claimed", "delivering")
 
     # 5. Report success
     outcome_resp = await client.post(
         f"/v1/executions/{execution_id}/outcome",
         headers={**headers, "Content-Type": "application/json"},
-        json={"success": True, "result": {"rows_processed": 42}},
+        json={"success": True, "result": "rows_processed: 42"},
     )
     assert outcome_resp.status_code in (200, 201)
 

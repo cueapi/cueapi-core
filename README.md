@@ -1,5 +1,7 @@
 # CueAPI
 
+![Python 3.9-3.12](https://img.shields.io/badge/python-3.9--3.12-blue)
+
 Scheduling infrastructure for AI agents. Open source core, hosted at [cueapi.ai](https://cueapi.ai).
 
 ## The problem
@@ -31,7 +33,11 @@ CueAPI does one thing: schedules tasks and tells you whether they succeeded.
 
 ## Quick start
 
-Prerequisites: Docker, Docker Compose
+Prerequisites:
+
+- Docker and Docker Compose
+- Python 3.9-3.12 (Python 3.13+ not yet supported — asyncpg dependency)
+- Git
 
 ```bash
 git clone https://github.com/govindkavaturi-art/cueapi-core
@@ -61,7 +67,7 @@ curl -X POST http://localhost:8000/v1/cues \
       "timezone": "America/Los_Angeles"
     },
     "callback": {
-      "url": "https://your-handler.com/webhook"
+      "url": "https://example.com/webhook"
     }
   }'
 ```

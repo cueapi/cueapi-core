@@ -24,10 +24,10 @@ Set `transport` to `"worker"`. No `url` is needed.
 ```bash
 curl -X POST http://localhost:8000/v1/cues \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer cue_live_..." \
+  -H "Authorization: Bearer cue_sk_..." \
   -d '{
-    "title": "Process reports",
-    "schedule": "0 9 * * *",
+    "name": "process-reports",
+    "schedule": {"type": "recurring", "cron": "0 9 * * *", "timezone": "UTC"},
     "transport": "worker",
     "payload": {"report_type": "daily"}
   }'
@@ -39,7 +39,7 @@ curl -X POST http://localhost:8000/v1/cues \
 
 ```bash
 curl http://localhost:8000/v1/executions/claimable \
-  -H "Authorization: Bearer cue_live_..."
+  -H "Authorization: Bearer cue_sk_..."
 ```
 
 Response:
@@ -63,7 +63,9 @@ If no executions are available, `items` will be an empty array. Poll again after
 
 ```bash
 curl -X POST http://localhost:8000/v1/executions/exec_abc123/claim \
-  -H "Authorization: Bearer cue_live_..."
+  -H "Authorization: Bearer cue_sk_..." \
+  -H "Content-Type: application/json" \
+  -d '{"worker_id": "my-worker-001"}'
 ```
 
 Response:
@@ -89,10 +91,10 @@ Process the payload however you need. This is your application logic.
 ```bash
 curl -X POST http://localhost:8000/v1/executions/exec_abc123/outcome \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer cue_live_..." \
+  -H "Authorization: Bearer cue_sk_..." \
   -d '{
-    "status": "success",
-    "result": {"rows_processed": 142}
+    "success": true,
+    "result": "rows_processed: 142"
   }'
 ```
 
@@ -101,9 +103,9 @@ curl -X POST http://localhost:8000/v1/executions/exec_abc123/outcome \
 ```bash
 curl -X POST http://localhost:8000/v1/executions/exec_abc123/outcome \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer cue_live_..." \
+  -H "Authorization: Bearer cue_sk_..." \
   -d '{
-    "status": "failure",
+    "success": false,
     "error": "Database connection refused"
   }'
 ```
@@ -134,7 +136,7 @@ import time
 import requests
 
 API = "http://localhost:8000"
-TOKEN = "cue_live_..."
+TOKEN = "cue_sk_..."
 HEADERS = {"Authorization": f"Bearer {TOKEN}"}
 
 while True:
@@ -156,13 +158,13 @@ while True:
             requests.post(
                 f"{API}/v1/executions/{exec_id}/outcome",
                 headers={**HEADERS, "Content-Type": "application/json"},
-                json={"status": "success", "result": result},
+                json={"success": True, "result": str(result)},
             )
         except Exception as e:
             requests.post(
                 f"{API}/v1/executions/{exec_id}/outcome",
                 headers={**HEADERS, "Content-Type": "application/json"},
-                json={"status": "failure", "error": str(e)},
+                json={"success": False, "error": str(e)},
             )
 
     time.sleep(2)

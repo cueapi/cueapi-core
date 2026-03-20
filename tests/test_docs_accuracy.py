@@ -87,7 +87,7 @@ async def test_readme_curl_example_uses_wrong_fields(client, registered_user):
     resp = await client.post("/v1/cues", headers=headers, json={
         "name": f"morning-brief-{uuid.uuid4().hex[:6]}",
         "schedule": {"type": "recurring", "cron": "0 9 * * *", "timezone": "America/Los_Angeles"},
-        "callback": {"url": "https://your-handler.com/webhook"},
+        "callback": {"url": "https://example.com/webhook"},
     })
     assert resp.status_code == 201, (
         f"README example should work but got {resp.status_code}: {resp.text}"
@@ -148,7 +148,7 @@ async def test_workers_md_claim_requires_worker_id(client, registered_user, db_s
     assert create_resp.status_code == 201
     cue_id = create_resp.json()["id"]
 
-    execution_id = f"exec_{uuid.uuid4().hex}"
+    execution_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     db_session.add(Execution(
         id=execution_id, cue_id=cue_id,
@@ -188,7 +188,7 @@ async def test_workers_md_outcome_schema_correct(client, registered_user, db_ses
     assert create_resp.status_code == 201
     cue_id = create_resp.json()["id"]
 
-    execution_id = f"exec_{uuid.uuid4().hex}"
+    execution_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     db_session.add(Execution(
         id=execution_id, cue_id=cue_id,
@@ -213,7 +213,7 @@ async def test_workers_md_outcome_schema_correct(client, registered_user, db_ses
     )
 
     # Inject a second execution to test real schema
-    execution_id2 = f"exec_{uuid.uuid4().hex}"
+    execution_id2 = str(uuid.uuid4())
     db_session.add(Execution(
         id=execution_id2, cue_id=cue_id,
         scheduled_for=now - timedelta(seconds=3),

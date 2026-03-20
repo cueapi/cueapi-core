@@ -7,6 +7,14 @@ Get CueAPI running locally in under 5 minutes.
 - [Docker](https://docs.docker.com/get-docker/) (20.10+)
 - [Docker Compose](https://docs.docker.com/compose/install/) (v2+)
 
+**Python version:** 3.9-3.12 required. Python 3.13+ not yet supported. If you're on a modern Mac with Homebrew Python, run:
+
+```bash
+brew install python@3.12
+python3.12 -m venv venv
+source venv/bin/activate
+```
+
 ## 1. Clone and start
 
 ```bash
@@ -31,7 +39,14 @@ curl http://localhost:8000/health
 Expected response:
 
 ```json
-{"status": "ok"}
+{
+  "status": "healthy",
+  "services": {
+    "postgres": "ok",
+    "redis": "ok"
+  },
+  "workers": 0
+}
 ```
 
 ## 3. Register an account
@@ -132,6 +147,32 @@ Expected response:
   "offset": 0
 }
 ```
+
+## 6. Verify your cue fired
+
+Check execution history for your cue:
+
+```bash
+curl http://localhost:8000/v1/cues/{cue_id}/executions \
+  -H "Authorization: Bearer cue_sk_..."
+```
+
+You should see an execution with status `pending`, `success`, or `retrying`.
+
+To speed this up for testing, create a cue that fires every minute:
+
+```bash
+curl -X POST http://localhost:8000/v1/cues \
+  -H "Authorization: Bearer cue_sk_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "test-every-minute",
+    "schedule": {"type": "recurring", "cron": "* * * * *"},
+    "callback": {"url": "https://example.com/webhook"}
+  }'
+```
+
+Wait 60 seconds then check executions. You should see your first execution.
 
 ## Next steps
 
