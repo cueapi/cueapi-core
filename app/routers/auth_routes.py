@@ -119,6 +119,10 @@ async def regenerate_key(
     )
     await redis.set(f"auth:{new_hash}", auth_user.model_dump_json(), ex=300)
 
+    # Send email notification
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    _send_key_regeneration_email(user.email, timestamp)
+
     return RegenerateResponse(api_key=new_key, previous_key_revoked=True)
 
 
@@ -242,3 +246,59 @@ async def reveal_key(
         }
 
     return {"api_key": decrypted}
+
+
+def _send_key_regeneration_email(email: str, timestamp: str) -> None:
+    """Send email notification when API key is regenerated (optional, requires resend)."""
+    try:
+        if settings.ENV == "development" or not settings.RESEND_API_KEY:
+            logger.info("[DEV] API key regenerated for %s at %s", email, timestamp)
+            return
+        import resend
+        resend.api_key = settings.RESEND_API_KEY
+        from app.utils.templates import brand_email, email_button, email_code, email_heading, email_paragraph
+        body_html = (
+            email_paragraph(f"Your CueAPI API key was regenerated at <strong style='color:#ffffff;'>{timestamp}</strong>.")
+            + email_paragraph("The old key is immediately invalid.")
+            + email_heading("What to do now:")
+            + email_paragraph(f"1. Copy your new key from the dashboard<br>2. Update your worker config<br>3. Restart your workers: {email_code('cueapi-worker start')}")
+            + f'<p style="margin:24px 0;">{email_button("Open Dashboard", settings.BASE_URL)}</p>'
+        )
+        resend.Emails.send({
+            "from": settings.RESEND_FROM_EMAIL,
+            "to": [email],
+            "subject": "[CueAPI] API key regenerated",
+            "html": brand_email("API Key Regenerated", body_html),
+        })
+    except ImportError:
+        logger.info("resend not installed — skipping key regeneration email for %s", email)
+    except Exception as e:
+        logger.error("Failed to send key regeneration email to %s: %s", email, e)
+
+
+def _send_webhook_secret_regeneration_email(email: str, timestamp: str) -> None:
+    """Send email notification when webhook secret is regenerated (optional, requires resend)."""
+    try:
+        if settings.ENV == "development" or not settings.RESEND_API_KEY:
+            logger.info("[DEV] Webhook secret regenerated for %s at %s", email, timestamp)
+            return
+        import resend
+        resend.api_key = settings.RESEND_API_KEY
+        from app.utils.templates import brand_email, email_button, email_heading, email_paragraph
+        body_html = (
+            email_paragraph(f"Your CueAPI webhook signing secret was rotated at <strong style='color:#ffffff;'>{timestamp}</strong>.")
+            + email_paragraph("The old secret is immediately invalid.")
+            + email_heading("What to do now:")
+            + email_paragraph("1. Copy your new secret from the dashboard<br>2. Update your webhook verification code")
+            + f'<p style="margin:24px 0;">{email_button("Open Dashboard", settings.BASE_URL)}</p>'
+        )
+        resend.Emails.send({
+            "from": settings.RESEND_FROM_EMAIL,
+            "to": [email],
+            "subject": "[CueAPI] Webhook secret rotated",
+            "html": brand_email("Webhook Secret Rotated", body_html),
+        })
+    except ImportError:
+        logger.info("resend not installed — skipping webhook secret email for %s", email)
+    except Exception as e:
+        logger.error("Failed to send webhook secret regeneration email to %s: %s", email, e)
