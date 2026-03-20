@@ -55,7 +55,10 @@ async def flush_rate_limits():
         if keys:
             await client.delete(*keys)
     yield
-    await client.aclose()
+    if hasattr(client, "aclose"):
+        await client.aclose()
+    else:
+        await client.close()
 
 
 @pytest_asyncio.fixture
@@ -108,7 +111,10 @@ async def redis_client():
         keys = await client.keys(pattern)
         if keys:
             await client.delete(*keys)
-    await client.aclose()
+    if hasattr(client, "aclose"):
+        await client.aclose()
+    else:
+        await client.close()
 
 
 @pytest_asyncio.fixture
