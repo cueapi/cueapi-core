@@ -1,0 +1,77 @@
+name: SDK Integration Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  sdk-integration:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: cueapi_test
+          POSTGRES_USER: runner
+          POSTGRES_PASSWORD: ""
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - name: Checkout cueapi-core
+        uses: actions/checkout@v4
+
+      - name: Checkout cueapi-python SDK
+        uses: actions/checkout@v4
+        with:
+          repository: govindkavaturi-art/cueapi-python
+          path: cueapi-python
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install cueapi-core dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install cueapi-python SDK (editable)
+        run: pip install -e cueapi-python
+
+      - name: Run cueapi-core full test suite
+        env:
+          DATABASE_URL: postgresql+asyncpg://runner@localhost:5432/cueapi_test
+          REDIS_URL: redis://localhost:6379
+          SESSION_SECRET: test-session-secret-32-chars-minimum!!
+          ENV: test
+          RESEND_API_KEY: ""
+        run: pytest tests/ -v --tb=short --ignore=tests/test_sdk_integration.py
+
+      - name: Run SDK integration tests (cross-layer)
+        env:
+          DATABASE_URL: postgresql+asyncpg://runner@localhost:5432/cueapi_test
+          REDIS_URL: redis://localhost:6379
+          SESSION_SECRET: test-session-secret-32-chars-minimum!!
+          ENV: test
+          RESEND_API_KEY: ""
+        run: pytest tests/test_sdk_integration.py -v --tb=short
