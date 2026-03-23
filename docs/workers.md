@@ -46,18 +46,20 @@ Response:
 
 ```json
 {
-  "items": [
+  "executions": [
     {
-      "id": "exec_abc123",
+      "execution_id": "exec_abc123",
       "cue_id": "cue_...",
+      "cue_name": "process-reports",
       "payload": {"report_type": "daily"},
-      "fired_at": "2025-01-01T09:00:00Z"
+      "scheduled_for": "2025-01-01T09:00:00Z",
+      "attempt": 1
     }
   ]
 }
 ```
 
-If no executions are available, `items` will be an empty array. Poll again after a short delay.
+If no executions are available, `executions` will be an empty array. Poll again after a short delay.
 
 ### 2. Claim an execution
 
@@ -142,13 +144,17 @@ HEADERS = {"Authorization": f"Bearer {TOKEN}"}
 while True:
     # Poll
     resp = requests.get(f"{API}/v1/executions/claimable", headers=HEADERS)
-    items = resp.json().get("items", [])
+    executions = resp.json().get("executions", [])
 
-    for execution in items:
-        exec_id = execution["id"]
+    for execution in executions:
+        exec_id = execution["execution_id"]
 
         # Claim
-        claim = requests.post(f"{API}/v1/executions/{exec_id}/claim", headers=HEADERS)
+        claim = requests.post(
+            f"{API}/v1/executions/{exec_id}/claim",
+            headers={**HEADERS, "Content-Type": "application/json"},
+            json={"worker_id": "my-worker-001"},
+        )
         if claim.status_code != 200:
             continue
 
