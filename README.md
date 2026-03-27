@@ -40,7 +40,7 @@ Prerequisites:
 - Git
 
 ```bash
-git clone https://github.com/govindkavaturi-art/cueapi-core
+git clone https://github.com/cueapi/cueapi-core
 cd cueapi-core
 docker compose up
 ```

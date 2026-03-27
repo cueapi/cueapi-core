@@ -73,6 +73,6 @@ Migrations 011 through 014 are SaaS-specific (billing, usage tiers, multi-tenant
 
 ## 11. Where do I get help?
 
-- **GitHub Issues:** [github.com/govindkavaturi-art/cueapi-core/issues](https://github.com/govindkavaturi-art/cueapi-core/issues) -- for bug reports and feature requests.
+- **GitHub Issues:** [github.com/cueapi/cueapi-core/issues](https://github.com/cueapi/cueapi-core/issues) -- for bug reports and feature requests.
 - **Discussions:** Use GitHub Discussions for questions and community help.
 - **Documentation:** Start with the [Quickstart](quickstart.md), then read [Configuration](configuration.md) and [Production](production.md).

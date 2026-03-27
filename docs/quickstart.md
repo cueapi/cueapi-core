@@ -18,7 +18,7 @@ source venv/bin/activate
 ## 1. Clone and start
 
 ```bash
-git clone https://github.com/govindkavaturi-art/cueapi-core.git
+git clone https://github.com/cueapi/cueapi-core.git
 cd cueapi-core
 docker compose up
 ```

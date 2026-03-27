@@ -5,7 +5,7 @@ Thank you for considering contributing to CueAPI.
 ## Development setup
 
 ```bash
-git clone https://github.com/govindkavaturi-art/cueapi-core
+git clone https://github.com/cueapi/cueapi-core
 cd cueapi-core
 cp .env.example .env
 docker compose up -d db redis

@@ -43,7 +43,7 @@ jobs:
       - name: Checkout cueapi-python SDK
         uses: actions/checkout@v4
         with:
-          repository: govindkavaturi-art/cueapi-python
+          repository: cueapi/cueapi-python
           path: cueapi-python
           token: ${{ secrets.GITHUB_TOKEN }}
 
