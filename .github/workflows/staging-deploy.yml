@@ -1,0 +1,32 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to staging
+        run: railway up --service api --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      - name: Wait for deployment
+        run: sleep 90
+
+      - name: Verify staging health
+        run: |
+          STAGING_URL="${{ secrets.CUEAPI_STAGING_URL }}"
+          response=$(curl -s -o /dev/null -w "%{http_code}" $STAGING_URL/health)
+          if [ "$response" != "200" ]; then
+            echo "Staging health check failed: $response"
+            exit 1
+          fi
+          echo "Staging healthy: $response"
