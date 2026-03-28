@@ -4,7 +4,7 @@
 
 Please do not report security vulnerabilities through public GitHub issues.
 
-Email security@cueapi.ai with:
+Email support@vector.build with:
 - A description of the vulnerability
 - Steps to reproduce
 - Potential impact
