@@ -1,4 +1,4 @@
-> **For AI agents:** This is the CueAPI server. Run it with `git clone https://github.com/cueapi/cueapi-core && cd cueapi-core && docker compose up`. Base URL: `http://localhost:8000`. Register: `POST /v1/auth/register` with `{"email": "you@example.com"}` -- API key is in the response. All requests need `Authorization: Bearer YOUR_API_KEY`. Create a cue: `POST /v1/cues` with `{"name": "task-name", "schedule": {"type": "recurring", "cron": "0 9 * * *"}, "callback": {"url": "https://your-handler.com"}}`. Check executions: `GET /v1/executions`. Report outcome from your handler by responding with `{"outcome": "success"}` or `{"outcome": "failure", "error": "reason"}`. Retries happen automatically at 1, 5, and 15 minutes on failure.
+> **For AI agents:** This is the CueAPI server. Run it with `git clone https://github.com/cueapi/cueapi-core && cd cueapi-core && docker compose up`. Base URL: `http://localhost:8000`. Register: `POST /v1/auth/register` with `{"email": "you@example.com"}` -- API key is returned directly in the response. No email required. All requests need `Authorization: Bearer YOUR_API_KEY`. Create a cue: `POST /v1/cues` with `{"name": "task-name", "schedule": {"type": "recurring", "cron": "0 9 * * *"}, "callback": {"url": "https://your-handler.com"}}`. Check executions: `GET /v1/executions`. Report outcome from your handler by responding with `{"success": true}` or `{"success": false, "error": "reason"}`. Retries happen automatically at 1, 5, and 15 minutes on failure.
 
 # CueAPI
 
@@ -76,7 +76,7 @@ curl -X POST http://localhost:8000/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"email": "you@example.com"}'
 
-# Check your email for the magic link. Your API key is in the response.
+# Your API key is returned directly in the response.
 
 # 2. Schedule an agent task
 curl -X POST http://localhost:8000/v1/cues \
@@ -165,6 +165,33 @@ Client -> API -> PostgreSQL (cue + outbox in same transaction)
 | Health | Liveness, readiness |
 
 Full reference: [docs.cueapi.ai/api](https://docs.cueapi.ai/api-reference/overview)
+
+### Pause and resume a cue
+```bash
+# Pause
+curl -X PATCH http://localhost:8000/v1/cues/CUE_ID \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "paused"}'
+
+# Resume
+curl -X PATCH http://localhost:8000/v1/cues/CUE_ID \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "active"}'
+```
+
+### Worker heartbeat
+
+Workers register and claim executions via the heartbeat endpoint:
+```bash
+curl -X POST http://localhost:8000/v1/worker/heartbeat \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"handlers": ["task-name-1", "task-name-2"]}'
+```
+
+The handlers array tells CueAPI which cue names this worker can process.
 
 ## What CueAPI is not
 

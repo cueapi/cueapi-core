@@ -2,6 +2,17 @@
 
 All notable changes to cueapi-core will be documented here.
 
+## [0.1.1] - 2026-03-28
+
+### Fixed
+- Added missing migrations 011-014 that prevented fresh installs from starting
+- Fixed migration chain gap between 010 and 015
+- Corrected README: outcome reporting uses {"success": true} not {"outcome": "success"}
+- Corrected README: one-time schedule field is `at` not `run_at`
+- Corrected README: registration returns API key directly, no magic link required
+- Documented pause/resume via PATCH {"status": "paused"} and {"status": "active"}
+- Documented worker heartbeat endpoint and handlers array
+
 ## [0.1.0] - 2025-03-28
 
 ### Added
