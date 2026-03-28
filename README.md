@@ -39,8 +39,8 @@ When your agent runs at 3am and silently fails, cron does not know. Neither do y
 ```json
 {
   "execution_id": "exec_01HX...",
-  "status": "delivered",
-  "outcome": "success",
+  "status": "success",
+  "outcome_success": true,
   "attempts": 1,
   "next_run": "2026-03-28T03:00:00Z",
   "delivered_at": "2026-03-28T03:00:04Z"
