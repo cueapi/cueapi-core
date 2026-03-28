@@ -6,6 +6,7 @@
 
 *Cron has no concept of success. Cue does.*
 
+[![Version](https://img.shields.io/badge/version-0.1.0-black)](CHANGELOG.md)
 [![Python 3.9-3.12](https://img.shields.io/badge/python-3.9--3.12-blue)](https://www.python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
 [![Tests: 367](https://img.shields.io/badge/tests-367-brightgreen)](https://github.com/cueapi/cueapi-core)
@@ -218,6 +219,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full contribution guidelines.
 
 [Apache 2.0](LICENSE). See [LICENSE](LICENSE).
 
+[Changelog](CHANGELOG.md)
+
 ---
 
-Built by [Vector Apps](https://cueapi.ai/about) · Hosted at [cueapi.ai](https://cueapi.ai) · Docs at [docs.cueapi.ai](https://docs.cueapi.ai)
+Built by [Vector Apps](https://cueapi.ai/about) · Hosted at [cueapi.ai](https://cueapi.ai) · Docs at [docs.cueapi.ai](https://docs.cueapi.ai) · [Changelog](CHANGELOG.md)
