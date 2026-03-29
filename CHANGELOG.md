@@ -2,6 +2,18 @@
 
 All notable changes to cueapi-core will be documented here.
 
+## [0.1.2] - 2026-03-28
+
+### Security
+- Fixed IPv6-mapped IPv4 SSRF bypass (::ffff:127.0.0.1 bypassed SSRF validation)
+- Updated aiohttp to 3.13.3 (16 CVEs fixed)
+- Updated pyjwt to 2.12.0 (1 CVE fixed)
+- Updated cryptography to 46.0.6 (3 CVEs fixed)
+- Updated starlette to 0.47.2 (2 CVEs fixed)
+- Disabled /docs, /redoc, /openapi.json in production (ENV=production)
+- Added comprehensive SECURITY.md with architecture details and self-hosting hardening checklist
+- Independent security audit completed: 41/42 tests passed, 1 critical finding fixed
+
 ## [0.1.1] - 2026-03-28
 
 ### Fixed

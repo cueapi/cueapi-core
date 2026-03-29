@@ -18,6 +18,7 @@ BLOCKED_RANGES = [
     ipaddress.ip_network('::1/128'),            # IPv6 loopback
     ipaddress.ip_network('fc00::/7'),           # IPv6 private
     ipaddress.ip_network('fe80::/10'),          # IPv6 link-local
+    ipaddress.ip_network('::ffff:0:0/96'),      # IPv6-mapped IPv4
 ]
 
 BLOCKED_HOSTNAMES = {
@@ -65,6 +66,9 @@ def validate_callback_url(url: str, env: str = "production") -> Tuple[bool, str]
         resolved_ips = socket.getaddrinfo(hostname, None)
         for family, socktype, proto, canonname, sockaddr in resolved_ips:
             ip = ipaddress.ip_address(sockaddr[0])
+            # If IPv6-mapped IPv4, extract the embedded IPv4
+            if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+                ip = ip.ipv4_mapped
             for blocked in BLOCKED_RANGES:
                 if ip in blocked:
                     return False, "Callback URL resolves to blocked address range"
@@ -78,6 +82,9 @@ def is_blocked_ip(ip_str: str) -> bool:
     """Check if an IP address falls in any blocked range."""
     try:
         ip = ipaddress.ip_address(ip_str)
+        # If IPv6-mapped IPv4, extract the embedded IPv4 and re-check
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
         for blocked in BLOCKED_RANGES:
             if ip in blocked:
                 return True

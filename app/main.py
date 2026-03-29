@@ -46,12 +46,18 @@ openapi_tags = [
     {"name": "auth-pages", "description": "HTML pages for device code verification flow"},
 ]
 
+import os
+_ENV = os.getenv("ENV", "development")
+
 app = FastAPI(
     title="CueAPI",
     version="1.0.0",
     description="Scheduling infrastructure for AI agents. Register cues (scheduled tasks), CueAPI fires webhooks or delivers via worker pull at the right time.",
     lifespan=lifespan,
     openapi_tags=openapi_tags,
+    docs_url="/docs" if _ENV != "production" else None,
+    redoc_url="/redoc" if _ENV != "production" else None,
+    openapi_url="/openapi.json" if _ENV != "production" else None,
 )
 
 app.add_middleware(

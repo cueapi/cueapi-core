@@ -242,6 +242,18 @@ Good first issues are labeled `good first issue` on GitHub.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for full contribution guidelines.
 
+## Security
+
+CueAPI was independently security-audited with 50+ penetration tests covering SSRF bypass (19 vectors), authentication and authorization, input validation, rate limiting, and information disclosure. Automated scanning performed with OWASP ZAP and Nuclei.
+
+- API keys hashed with SHA-256 - never stored in plaintext
+- SSRF protection with dual-time DNS validation (creation + delivery)
+- Stripe-style webhook signing (HMAC-SHA256 with replay protection)
+- Sliding-window rate limiting per API key and per IP
+- Zero sensitive data in logs or error responses
+
+See [SECURITY.md](SECURITY.md) for responsible disclosure, architecture details, and self-hosting hardening guide.
+
 ## License
 
 [Apache 2.0](LICENSE). See [LICENSE](LICENSE).
