@@ -2,7 +2,7 @@
 
 ## Reporting Vulnerabilities
 
-Email: security@vector.build
+Email: support@vector.build
 Expected response: 48 hours
 We do not pursue legal action against good-faith security researchers.
 
