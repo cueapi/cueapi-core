@@ -73,11 +73,11 @@ async def deliver_webhook(
             if callback_method.upper() == "GET":
                 response = await client.get(callback_url, headers=headers)
             elif callback_method.upper() == "PUT":
-                response = await client.put(callback_url, headers=headers, content=json.dumps(webhook_body))
+                response = await client.put(callback_url, headers=headers, content=json.dumps(webhook_body, sort_keys=True, default=str))
             elif callback_method.upper() == "PATCH":
-                response = await client.patch(callback_url, headers=headers, content=json.dumps(webhook_body))
+                response = await client.patch(callback_url, headers=headers, content=json.dumps(webhook_body, sort_keys=True, default=str))
             else:  # POST
-                response = await client.post(callback_url, headers=headers, content=json.dumps(webhook_body))
+                response = await client.post(callback_url, headers=headers, content=json.dumps(webhook_body, sort_keys=True, default=str))
 
             response_text = response.text[:2000]  # Limit stored response
             if 200 <= response.status_code < 300:
