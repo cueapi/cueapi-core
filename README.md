@@ -36,7 +36,7 @@ When your agent runs at 3am and silently fails, cron does not know. Neither do y
 
 ## See it in action
 
-![CueAPI Live Execution Feed](https://raw.githubusercontent.com/cueapi/cueapi-core/main/docs/execution-feed.gif)
+<img src="https://raw.githubusercontent.com/cueapi/cueapi-core/main/docs/execution-feed.gif" width="100%" alt="CueAPI Live Execution Feed" />
 
 ## What CueAPI does differently
 
