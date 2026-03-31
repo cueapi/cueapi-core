@@ -34,6 +34,10 @@ When your agent runs at 3am and silently fails, cron does not know. Neither do y
 # Are you alerted? Never.
 ```
 
+## See it in action
+
+![CueAPI Live Execution Feed](https://raw.githubusercontent.com/cueapi/cueapi-core/main/docs/execution-feed.gif)
+
 ## What CueAPI does differently
 
 ```json
@@ -55,10 +59,6 @@ When your agent runs at 3am and silently fails, cron does not know. Neither do y
 | Execution history | No | Yes |
 | Alerts on exhausted retries | No | Yes (email + webhook) |
 | Works without a public URL | No | Yes (worker transport) |
-
-## See it in action
-
-![CueAPI Live Execution Feed](https://raw.githubusercontent.com/cueapi/cueapi-core/main/docs/execution-feed.gif)
 
 ## Quick start
 
