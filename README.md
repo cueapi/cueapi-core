@@ -56,6 +56,10 @@ When your agent runs at 3am and silently fails, cron does not know. Neither do y
 | Alerts on exhausted retries | No | Yes (email + webhook) |
 | Works without a public URL | No | Yes (worker transport) |
 
+## See it in action
+
+![CueAPI Live Execution Feed](https://raw.githubusercontent.com/cueapi/cueapi-core/main/docs/execution-feed.gif)
+
 ## Quick start
 
 **Prerequisites:** Docker, Docker Compose, Git
