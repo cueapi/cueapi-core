@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 
+import httpx
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -195,12 +196,17 @@ class TestSDKCueLifecycle:
                 client.cues.list()
 
 
+class _ClosableASGITransport(httpx.ASGITransport):
+    """ASGITransport with a no-op close() for sync httpx.Client compatibility."""
+
+    def close(self) -> None:
+        pass
+
+
 def _make_test_http(api_key: str):
     """Create an httpx.Client using the ASGI transport for local testing."""
-    import httpx
-
     return httpx.Client(
-        transport=httpx.ASGITransport(app=app),
+        transport=_ClosableASGITransport(app=app),
         base_url="http://test",
         headers={
             "Authorization": f"Bearer {api_key}",
