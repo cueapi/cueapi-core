@@ -32,7 +32,13 @@ async def _send_failure_email(
     """Send email notification when execution fails after all retries.
 
     Rate limited: max 10 failure emails per hour per user via Redis counter.
+    Suppressed for test/ephemeral cues.
     """
+    from app.services.email_service import is_test_cue
+    if is_test_cue(cue_name):
+        logger.info("Failure email suppressed for test cue: %s", cue_name)
+        return
+
     try:
         redis_client = aioredis.from_url(settings.REDIS_URL)
         rate_key = f"failure_email:{user_id}"
