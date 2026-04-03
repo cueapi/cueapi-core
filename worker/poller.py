@@ -648,6 +648,14 @@ async def check_worker_health(db_engine, redis, offline_threshold: int = 300) ->
 
             minutes_offline = int((now - worker_row.last_heartbeat).total_seconds() / 60)
 
+            # Rate limit: max 1 worker offline email per worker per hour
+            rate_key = f"worker_offline_email:{worker_id}"
+            already_sent = await redis.get(rate_key)
+            if already_sent:
+                logger.info("Worker offline email suppressed (rate limited): %s", worker_id)
+                continue
+            await redis.setex(rate_key, 3600, "1")
+
             # Send alert email
             try:
                 import resend
