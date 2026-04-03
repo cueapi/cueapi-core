@@ -46,6 +46,7 @@ async def echo_store(token: str, request: Request):
 
     data = json.dumps({
         "payload": payload,
+        "headers": dict(request.headers),
         "received_at": datetime.now(timezone.utc).isoformat(),
     })
     await redis.set(f"echo:{token}", data, ex=ECHO_TTL_SECONDS)
@@ -69,5 +70,6 @@ async def echo_retrieve(
     return {
         "status": "delivered",
         "payload": parsed["payload"],
+        "headers": parsed.get("headers", {}),
         "received_at": parsed["received_at"],
     }
