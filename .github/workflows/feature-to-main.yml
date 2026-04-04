@@ -19,10 +19,10 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U runner"
           --health-interval 2s
           --health-timeout 3s
-          --health-retries 10
+          --health-retries 15
 
       redis:
         image: redis:7-alpine
