@@ -90,7 +90,8 @@ jobs:
               \"schedule\": {\"type\": \"once\", \"at\": \"${FIRE_AT}\"},
               \"transport\": \"worker\",
               \"payload\": {
-                \"task\": \"verify-github-merge\",
+                \"task\": \"test-cueapi-core\",
+                \"trigger\": \"post-merge\",
                 \"repo\": \"cueapi/cueapi-core\",
                 \"pr_number\": \"${{ github.event.pull_request.number }}\",
                 \"commit_sha\": \"${{ github.event.pull_request.head.sha }}\"
