@@ -30,12 +30,26 @@ class Execution(Base):
     outcome_error = Column(Text, nullable=True)
     outcome_metadata = Column(JSONB, nullable=True)
     outcome_recorded_at = Column(DateTime(timezone=True), nullable=True)
+    outcome_deadline_seconds = Column(Integer, nullable=True)
+    outcome_deadline_at = Column(DateTime(timezone=True), nullable=True)
+    outcome_state = Column(Text, nullable=True)
+    last_heartbeat_at = Column(DateTime(timezone=True), nullable=True)
+    triggered_by = Column(String(50), nullable=True)
+    evidence_external_id = Column(String(255), nullable=True)
+    evidence_result_url = Column(Text, nullable=True)
+    evidence_result_ref = Column(String(255), nullable=True)
+    evidence_result_type = Column(String(50), nullable=True)
+    evidence_summary = Column(Text, nullable=True)
+    evidence_validation_state = Column(String(20), nullable=True)
+    evidence_produced_at = Column(DateTime(timezone=True), nullable=True)
+    evidence_artifacts = Column(JSONB, nullable=True)
+    evidence_metadata = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'delivering', 'success', 'failed', 'retrying', 'retry_ready', 'missed')",
+            "status IN ('pending', 'delivering', 'success', 'failed', 'retrying', 'retry_ready', 'missed', 'pending_outcome', 'outcome_timeout')",
             name="valid_exec_status",
         ),
         UniqueConstraint("cue_id", "scheduled_for", name="idx_executions_dedup"),

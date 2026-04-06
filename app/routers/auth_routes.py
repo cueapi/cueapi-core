@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr
@@ -167,6 +168,28 @@ async def get_me(
     }
 
 
+class PatchMeRequest(BaseModel):
+    email: Optional[str] = None
+
+
+@router.patch("/me")
+async def patch_me(
+    body: PatchMeRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update user profile settings."""
+    now = datetime.now(timezone.utc)
+    updates = {"updated_at": now}
+    if body.email is not None:
+        updates["email"] = body.email
+    if not updates or len(updates) == 1:  # only updated_at
+        raise HTTPException(status_code=422, detail={"error": {"code": "no_fields", "message": "No fields to update", "status": 422}})
+    await db.execute(update(User).where(User.id == user.id).values(**updates))
+    await db.commit()
+    return {"updated_at": now.isoformat()}
+
+
 class SessionRequest(BaseModel):
     token: str
 
@@ -215,6 +238,23 @@ async def create_session(
         "session_token": session_jwt,
         "email": user.email,
     }
+
+
+@router.post("/session/refresh")
+async def refresh_session(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+):
+    """Issue a fresh session JWT with a new expiry."""
+    from app.utils.session import create_session_jwt
+
+    try:
+        new_token = create_session_jwt(str(current_user.id), current_user.email)
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": {"code": "session_unavailable", "message": str(e), "status": 503}},
+        )
+    return {"session_token": new_token, "email": current_user.email}
 
 
 @router.get("/key")
