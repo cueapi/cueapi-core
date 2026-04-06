@@ -86,3 +86,49 @@ async def delete(
             detail={"error": {"code": "cue_not_found", "message": "Cue not found", "status": 404}},
         )
     return Response(status_code=204)
+
+
+@router.post("/{cue_id}/fire", status_code=200)
+async def fire_cue(
+    cue_id: str,
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually fire a cue — creates an execution immediately regardless of schedule."""
+    import uuid as uuid_mod
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+    from app.models.cue import Cue as CueModel
+    from app.models.execution import Execution
+    from app.models.dispatch_outbox import DispatchOutbox
+
+    result = await db.execute(select(CueModel).where(CueModel.id == cue_id, CueModel.user_id == user.id))
+    cue = result.scalar_one_or_none()
+    if not cue:
+        raise HTTPException(status_code=404, detail={"error": {"code": "cue_not_found", "message": "Cue not found", "status": 404}})
+
+    now = datetime.now(timezone.utc)
+    execution_id = uuid_mod.uuid4()
+    execution = Execution(id=execution_id, cue_id=cue.id, scheduled_for=now, status="pending", triggered_by="manual_fire")
+    db.add(execution)
+
+    if cue.callback_transport == "webhook" and cue.callback_url:
+        from app.models.user import User
+        user_row = await db.execute(select(User.webhook_secret).where(User.id == user.id))
+        ws = user_row.scalar_one_or_none() or ""
+        outbox = DispatchOutbox(
+            execution_id=execution_id, cue_id=cue.id, task_type="deliver",
+            payload={
+                "execution_id": str(execution_id), "cue_id": cue.id, "cue_name": cue.name,
+                "user_id": str(user.id), "callback_url": cue.callback_url,
+                "callback_method": cue.callback_method, "callback_headers": cue.callback_headers or {},
+                "payload": cue.payload or {}, "scheduled_for": now.isoformat(),
+                "retry_max_attempts": cue.retry_max_attempts,
+                "retry_backoff_minutes": cue.retry_backoff_minutes or [1, 5, 15],
+                "webhook_secret": ws,
+            },
+        )
+        db.add(outbox)
+
+    await db.commit()
+    return {"id": str(execution_id), "cue_id": cue.id, "scheduled_for": now.isoformat(), "status": "pending", "triggered_by": "manual_fire"}
