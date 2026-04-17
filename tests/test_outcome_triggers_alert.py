@@ -1,10 +1,12 @@
 """End-to-end: outcome reports fire alerts for the right conditions.
 
 Covers:
-- verification_failed alert fires when execution.outcome_state is set
-  to 'verification_failed' by the rule engine (this hook is dormant
-  on current origin/main — PR #18 activates it — but we seed the
-  state directly to exercise the integration path).
+- verification_failed alert fires when the rule engine sets
+  ``outcome_state = 'verification_failed'`` during ``record_outcome``
+  (rule engine landed in PR #18, merged ahead of this PR — we trigger
+  it via the real path: a cue configured with a ``require_*``
+  verification mode whose outcome report arrives without the required
+  evidence field).
 - consecutive_failures alert fires after the 3rd consecutive failure
   on the same cue.
 - Dedup prevents repeat firing within the window.
@@ -29,7 +31,7 @@ async def _uid(session: AsyncSession, user: dict) -> str:
     return str(r.scalar_one())
 
 
-async def _cue(session, user_id, transport="webhook"):
+async def _cue(session, user_id, transport="webhook", verification_mode=None):
     c = Cue(
         id=f"cue_{uuid.uuid4().hex[:12]}",
         user_id=user_id,
@@ -45,6 +47,7 @@ async def _cue(session, user_id, transport="webhook"):
         retry_max_attempts=3,
         retry_backoff_minutes=[1, 5, 15],
         on_failure={"email": False, "webhook": None, "pause": False},
+        verification_mode=verification_mode,
     )
     session.add(c)
     await session.commit()
@@ -69,15 +72,19 @@ class TestVerificationFailedAlert:
     async def test_fires_when_outcome_state_is_verification_failed(
         self, client, auth_headers, db_session, registered_user
     ):
-        # Seed: execution with outcome_state pre-set (simulating PR #18
-        # rule engine having set it during record_outcome).
+        # Configure a cue with require_external_id so the rule engine
+        # (PR #18, now on main) will transition to verification_failed
+        # when the outcome report omits external_id. This is the real
+        # production trigger; no pre-seeding needed.
         uid = await _uid(db_session, registered_user)
-        cue = await _cue(db_session, uid)
-        ex = await _exec(db_session, cue.id, outcome_state="verification_failed")
+        cue = await _cue(
+            db_session, uid, verification_mode="require_external_id"
+        )
+        ex = await _exec(db_session, cue.id)
 
-        # Report outcome. The record_outcome path writes and commits,
-        # then checks outcome_state post-commit. Since we pre-seeded
-        # the state, the alert hook fires.
+        # Report outcome with success=True but NO external_id. The
+        # rule engine sets outcome_state='verification_failed'; the
+        # alert hook in outcome_service fires immediately after commit.
         resp = await client.post(
             f"/v1/executions/{ex.id}/outcome",
             headers=auth_headers,
