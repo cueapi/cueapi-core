@@ -98,3 +98,28 @@ async def list_workers(
         ))
 
     return WorkerListResponse(workers=worker_list)
+
+
+@workers_list_router.delete("/{worker_id}", status_code=204)
+async def delete_worker(
+    worker_id: str,
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a registered worker. Only the owning user can delete their workers."""
+    from sqlalchemy import delete as sa_delete
+
+    result = await db.execute(
+        sa_delete(Worker).where(
+            Worker.user_id == user.id,
+            Worker.worker_id == worker_id,
+        ).returning(Worker.id)
+    )
+    deleted = result.fetchone()
+    if not deleted:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "worker_not_found", "message": "Worker not found", "status": 404}},
+        )
+    await db.commit()
