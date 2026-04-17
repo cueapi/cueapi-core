@@ -208,11 +208,11 @@ class TestVerify:
 
     @pytest.mark.asyncio
     async def test_verify_wrong_state(self, client, auth_headers, db_session, registered_user):
+        # reported_failure is now an accepted starting state (PR: verification
+        # modes parity). Use a pre-outcome state — still invalid.
         user_id = await _get_user_id(db_session, registered_user)
         cue = await _create_webhook_cue(db_session, user_id)
-        ex = await _create_execution(db_session, cue.id, status="success",
-                                      outcome_state="reported_failure",
-                                      outcome_recorded_at=datetime.now(timezone.utc))
+        ex = await _create_execution(db_session, cue.id, status="pending")
 
         resp = await client.post(f"/v1/executions/{ex.id}/verify", headers=auth_headers)
         assert resp.status_code == 409

@@ -198,6 +198,56 @@ curl -X POST http://localhost:8000/v1/worker/heartbeat \
 
 The handlers array tells CueAPI which cue names this worker can process.
 
+### Verification modes
+
+Cues can require evidence on the outcome report. Configure a `verification` policy at create or update time:
+
+```bash
+curl -X POST http://localhost:8000/v1/cues \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{"name": "nightly-report", "schedule": {"type": "recurring", "cron": "0 9 * * *"},
+       "callback": {"url": "https://your-handler.com"},
+       "verification": {"mode": "require_external_id"}}'
+```
+
+Five modes:
+
+| Mode | Behavior |
+|------|----------|
+| `none` (default) | Reported `success` is final — `reported_success` / `reported_failure`. |
+| `require_external_id` | Outcome must include `external_id`. Missing → `verification_failed`. Present → `verified_success`. |
+| `require_result_url` | Outcome must include `result_url`. |
+| `require_artifacts` | Outcome must include `artifacts` (non-empty). |
+| `manual` | Every successful outcome parks in `verification_pending` until someone calls `POST /v1/executions/{id}/verify`. |
+
+Report outcomes with evidence inline on the existing endpoint:
+
+```bash
+curl -X POST http://localhost:8000/v1/executions/EXEC_ID/outcome \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{"success": true, "external_id": "stripe_ch_abc123",
+       "result_url": "https://dashboard.stripe.com/payments/ch_abc123",
+       "summary": "Charged customer 42"}'
+```
+
+Manually verify or reject a parked outcome:
+
+```bash
+# Approve
+curl -X POST http://localhost:8000/v1/executions/EXEC_ID/verify \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{"valid": true}'
+
+# Reject (e.g. after audit)
+curl -X POST http://localhost:8000/v1/executions/EXEC_ID/verify \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{"valid": false, "reason": "invoice number does not match"}'
+```
+
+Backward-compat paths still work: `POST /outcome` with just `{success: true}` behaves identically to before, and `PATCH /v1/executions/{id}/evidence` remains available as a two-step alternative.
+
+> Worker-transport cues can currently use `none` or `manual` only. Evidence-requiring modes (`require_external_id`, `require_result_url`, `require_artifacts`) are rejected at create/update time with `400 unsupported_verification_for_transport`. This restriction will be lifted once cueapi-worker 0.3.0 ships to PyPI with evidence reporting via `CUEAPI_OUTCOME_FILE`.
+
 ## Alerts
 
 cueapi-core persists alerts when outcomes go wrong and — if you configure a webhook URL — POSTs them to you with an HMAC signature. Three alert types today:

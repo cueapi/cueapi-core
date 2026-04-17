@@ -1,21 +1,17 @@
 """Add alerts table.
 
 Revision ID: 018
-Revises: 016
+Revises: 017
 
-Note: this migration's ``down_revision`` will need to be updated to
-``017`` if PR #18 (verification modes, which introduces migration 017)
-lands first. Currently chained off 016 so this PR stands alone on
-origin/main.
-
-Revises: 016
+Chained off 017 (verification_mode column, PR #18). PR #18 landed
+first on main so 018 now hangs directly off it.
 """
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 revision = "018"
-down_revision = "016"
+down_revision = "017"
 branch_labels = None
 depends_on = None
 
