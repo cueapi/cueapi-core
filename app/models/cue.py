@@ -28,6 +28,8 @@ class Cue(Base):
     run_count = Column(Integer, nullable=False, default=0)
     fired_count = Column(Integer, nullable=False, default=0)
     on_failure = Column(JSONB, nullable=True, default={"email": True, "webhook": None, "pause": False})
+    # Outcome-verification policy. NULL == no verification (same as 'none').
+    verification_mode = Column(String(50), nullable=True, default=None)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
@@ -36,5 +38,11 @@ class Cue(Base):
         CheckConstraint("schedule_type IN ('once', 'recurring')", name="valid_schedule_type"),
         CheckConstraint("callback_method IN ('POST', 'GET', 'PUT', 'PATCH')", name="valid_callback_method"),
         CheckConstraint("callback_transport IN ('webhook', 'worker')", name="valid_callback_transport"),
+        CheckConstraint(
+            "verification_mode IS NULL OR verification_mode IN ("
+            "'none', 'require_external_id', 'require_result_url', "
+            "'require_artifacts', 'manual')",
+            name="valid_verification_mode",
+        ),
         UniqueConstraint("user_id", "name", name="unique_user_cue_name"),
     )
