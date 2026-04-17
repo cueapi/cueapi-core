@@ -17,6 +17,10 @@ All notable changes to cueapi-core will be documented here.
 - **Dedup** — alerts collapse on `(user_id, alert_type, execution_id)` inside a 5-minute window.
 - **Migrations 018 + 019** — alerts table with indexes and CHECK constraints; two columns on users.
 - `examples/alert_webhook_receiver.py` — 30-line Flask receiver demonstrating signature verification.
+- `HOSTED_ONLY.md` documenting the open-core policy — which features are OSS, which are intentionally hosted-only on cueapi.ai, and why.
+- `parity-manifest.json` enumerating files that have a same-path counterpart in the private cueapi monorepo. Used by the new parity-check workflow.
+- `.github/workflows/parity-check.yml` — soft-enforcement CI that posts a comment on PRs which touch tracked files, asking the author to cross-reference the private repo. Never blocks merge; exits 0 regardless.
+- README "Open core model" section near the top, linking to `HOSTED_ONLY.md`.
 
 ### Changed
 - **`POST /v1/executions/{id}/verify`** now accepts `{valid: bool, reason: str?}`. `valid=true` (default, preserving legacy behavior) transitions to `verified_success`; `valid=false` transitions to `verification_failed` and records the reason onto `evidence_summary` (truncated to 500 chars). Accepted starting states expanded to include `reported_failure`.

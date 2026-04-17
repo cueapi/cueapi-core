@@ -15,6 +15,12 @@
 
 The open source server for CueAPI. Run it yourself with Docker. Hosted at [cueapi.ai](https://cueapi.ai).
 
+## Open core model
+
+cueapi-core is the scheduling + delivery + outcome-tracking engine. Hosted cueapi.ai adds a dashboard, managed email alerts, billing, and a few other SaaS-business-layer features — see [HOSTED_ONLY.md](HOSTED_ONLY.md) for the full list and reasoning. Nothing in the OSS scheduler is crippled; what's here is what runs in production.
+
+If you want a hosted-only feature ported to OSS, [open an issue](https://github.com/cueapi/cueapi-core/issues/new) — see the "Contributing a port" section in [HOSTED_ONLY.md](HOSTED_ONLY.md).
+
 ---
 
 ## The problem with cron

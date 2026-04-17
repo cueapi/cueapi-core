@@ -1,0 +1,129 @@
+name: parity-check
+
+# Soft-enforcement reminder when a PR modifies a file tracked in
+# parity-manifest.json. Posts a comment listing the touched tracked
+# files and asks the author to cross-reference the private cueapi
+# monorepo. NEVER blocks merge — exits 0 regardless. See HOSTED_ONLY.md
+# for the open-core policy this enforces.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  parity-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8  # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Check if manifest exists
+        id: manifest_exists
+        run: |
+          if [ -f parity-manifest.json ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::parity-manifest.json not found — skipping parity check."
+          fi
+
+      - name: Compute touched tracked files
+        if: steps.manifest_exists.outputs.exists == 'true'
+        id: compute
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # Union of staged + PR diff
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > /tmp/touched.txt || true
+
+          # Extract every tracked path from parity-manifest.json
+          # (flat list across all subdirectory groups)
+          python3 - <<'PY' > /tmp/tracked.txt
+          import json
+          with open("parity-manifest.json") as f:
+              manifest = json.load(f)
+          files = manifest.get("files", {})
+          if isinstance(files, list):
+              entries = files
+          else:
+              entries = []
+              for group in files.values():
+                  entries.extend(group)
+          for e in entries:
+              print(e["path"])
+          PY
+
+          # Intersection — tracked files this PR touches
+          grep -Fxf /tmp/tracked.txt /tmp/touched.txt > /tmp/matches.txt || true
+
+          if [ -s /tmp/matches.txt ]; then
+            echo "has_matches=true" >> "$GITHUB_OUTPUT"
+            {
+              echo 'matches<<EOF'
+              cat /tmp/matches.txt
+              echo 'EOF'
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "has_matches=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post parity-check comment
+        if: steps.manifest_exists.outputs.exists == 'true' && steps.compute.outputs.has_matches == 'true'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        env:
+          MATCHES: ${{ steps.compute.outputs.matches }}
+        with:
+          script: |
+            const matches = process.env.MATCHES.trim().split('\n').filter(Boolean);
+            const fileList = matches.map(f => `- \`${f}\``).join('\n');
+            const marker = '<!-- parity-check-comment -->';
+            const body = `${marker}
+            ## Parity check
+
+            This PR modifies files tracked in [\`parity-manifest.json\`](../blob/main/parity-manifest.json):
+
+            ${fileList}
+
+            Please confirm **one** of the following in a reply or PR description update:
+
+            1. **The equivalent change has been applied to the private cueapi monorepo.** Link the PR.
+            2. **This change is OSS-only and does not need porting.** Briefly explain why (e.g. "fixes a bug that only exists in the OSS build").
+            3. **A follow-up issue has been filed to port the reverse direction.** Link the issue.
+
+            This is a soft check — it does not block merge. The goal is visibility, not friction. See [HOSTED_ONLY.md](../blob/main/HOSTED_ONLY.md) for the open-core policy.`;
+
+            // Update-in-place: if we've commented before, edit instead of spamming
+            const {data: comments} = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: No tracked files touched
+        if: steps.manifest_exists.outputs.exists == 'true' && steps.compute.outputs.has_matches != 'true'
+        run: echo "::notice::No parity-tracked files modified in this PR."
