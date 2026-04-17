@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -29,47 +30,16 @@ def validate_cron(expression: str) -> bool:
         return False
 
 
-# Verification modes that require evidence on the outcome report.
-# Worker transport (today) has no path to attach evidence on the single
-# outcome POST, so these modes are rejected for worker cues at create /
-# update time. Ref: cueapi-worker < 0.3.0. This rejection is lifted in
-# a later PR once cueapi-worker 0.3.0 (CUEAPI_OUTCOME_FILE) is on PyPI.
-_EVIDENCE_REQUIRING_MODES = frozenset(
-    {"require_external_id", "require_result_url", "require_artifacts"}
-)
-_WORKER_COMPATIBLE_MODES = ("none", "manual")
+logger = logging.getLogger(__name__)
 
 
-def _check_transport_verification_combo(
-    transport: str, mode: Optional[str]
-) -> Optional[dict]:
-    """Reject worker transport paired with evidence-based verification.
-
-    Returns an error dict (matching the service-layer error shape) when
-    the combination is invalid, or None when it's fine. Lives here
-    rather than as a Pydantic validator because the existing API shape
-    uses structured 400 errors (``{"error": {"code": ...}}``) and
-    Pydantic ValueErrors surface as 422 with a different schema.
-    """
-    if transport != "worker" or not mode or mode in _WORKER_COMPATIBLE_MODES:
-        return None
-    if mode not in _EVIDENCE_REQUIRING_MODES:
-        return None
-    return {
-        "error": {
-            "code": "unsupported_verification_for_transport",
-            "message": (
-                "Worker transport does not yet support evidence-based "
-                "verification modes. Use 'none' or 'manual' for worker "
-                "cues, or switch to webhook transport for evidence "
-                "verification."
-            ),
-            "status": 400,
-            "transport": "worker",
-            "verification_mode": mode,
-            "supported_worker_modes": list(_WORKER_COMPATIBLE_MODES),
-        }
-    }
+# Worker transport now supports every verification mode. Handlers
+# report evidence via ``$CUEAPI_OUTCOME_FILE`` (cueapi-worker >= 0.3.0
+# on PyPI as of 2026-04-17); the daemon reads the file after the
+# handler exits and merges the evidence into its outcome POST. The
+# rejection function that used to gate ``(worker, require_*)`` combos
+# was deleted along with this comment's predecessor. See the
+# cueapi-worker README for the outcome-file schema and conflict rules.
 
 
 def _contains_null_byte(obj) -> bool:
@@ -204,16 +174,22 @@ async def create_cue(db: AsyncSession, user: AuthenticatedUser, data: CueCreate)
     transport = data.transport or "webhook"
     warning = None
 
-    # Reject worker transport paired with evidence-based verification.
-    # See ``_check_transport_verification_combo`` for the rationale —
-    # this will be lifted once cueapi-worker 0.3.0 (evidence reporting
-    # via CUEAPI_OUTCOME_FILE) is on PyPI.
-    if data.verification is not None:
-        combo_err = _check_transport_verification_combo(
-            transport, data.verification.mode.value
+    # Note: previously rejected (worker, require_*) combos because
+    # cueapi-worker had no evidence channel. cueapi-worker 0.3.0
+    # (CUEAPI_OUTCOME_FILE) closed that gap; all modes are now
+    # accepted on both transports. Log at INFO so operators with older
+    # worker versions have a breadcrumb.
+    if (
+        transport == "worker"
+        and data.verification is not None
+        and data.verification.mode.value in ("require_external_id", "require_result_url", "require_artifacts")
+    ):
+        logger.info(
+            "Worker cue created with evidence-based verification mode=%s "
+            "(requires cueapi-worker >= 0.3.0 on the handler machine to "
+            "write $CUEAPI_OUTCOME_FILE).",
+            data.verification.mode.value,
         )
-        if combo_err is not None:
-            return combo_err
 
     if transport == "webhook":
         is_valid, error_msg = validate_callback_url(str(data.callback.url), settings.ENV)
@@ -456,16 +432,22 @@ async def update_cue(db: AsyncSession, user: AuthenticatedUser, cue_id: str, dat
         cue.retry_max_attempts = data.retry.max_attempts
         cue.retry_backoff_minutes = data.retry.backoff_minutes
 
-    # Verification policy update. Validate the *resulting* (transport,
-    # mode) combo — transport is effectively immutable via PATCH today,
-    # so the resulting transport is whatever the cue currently has.
+    # Verification policy update. All (transport, mode) combinations
+    # are now accepted — cueapi-worker 0.3.0 closed the worker-side
+    # evidence gap via $CUEAPI_OUTCOME_FILE. Log at INFO when a worker
+    # cue is switched to an evidence-based mode so operators have a
+    # breadcrumb in case older worker versions are still deployed.
     if data.verification is not None:
         resulting_transport = cue.callback_transport or "webhook"
-        combo_err = _check_transport_verification_combo(
-            resulting_transport, data.verification.mode.value
-        )
-        if combo_err is not None:
-            return combo_err
+        if (
+            resulting_transport == "worker"
+            and data.verification.mode.value in ("require_external_id", "require_result_url", "require_artifacts")
+        ):
+            logger.info(
+                "Cue %s updated to evidence-based verification mode=%s on "
+                "worker transport (requires cueapi-worker >= 0.3.0).",
+                cue.id, data.verification.mode.value,
+            )
         cue.verification_mode = data.verification.mode.value
 
     if data.on_failure is not None:

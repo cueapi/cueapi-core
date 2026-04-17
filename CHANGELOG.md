@@ -26,8 +26,8 @@ All notable changes to cueapi-core will be documented here.
 - **`POST /v1/executions/{id}/verify`** now accepts `{valid: bool, reason: str?}`. `valid=true` (default, preserving legacy behavior) transitions to `verified_success`; `valid=false` transitions to `verification_failed` and records the reason onto `evidence_summary` (truncated to 500 chars). Accepted starting states expanded to include `reported_failure`.
 - `OutcomeResponse` now surfaces `outcome_state` in the response body.
 
-### Restricted
-- Worker-transport cues cannot currently combine with evidence-requiring verification modes (`require_external_id`, `require_result_url`, `require_artifacts`). Attempting to create or PATCH such a combination returns `400 unsupported_verification_for_transport`. `none` and `manual` are allowed for worker cues. This restriction will be lifted once cueapi-worker 0.3.0 (evidence reporting via `CUEAPI_OUTCOME_FILE`) is on PyPI.
+### Removed
+- **Rejection of `(worker transport, require_*)` verification combos** has been lifted. cueapi-worker 0.3.0 (released 2026-04-17 to PyPI) closes the evidence gap via `$CUEAPI_OUTCOME_FILE`: handlers write evidence JSON to a per-run temp file; the daemon reads the file after exit and merges into the outcome POST. All five verification modes now work on both transports. Operators running older cueapi-worker versions should upgrade via `pip install --upgrade cueapi-worker` — until they do, evidence-requiring modes on worker cues will land every execution in `verification_failed`.
 
 ## [0.1.2] - 2026-03-28
 

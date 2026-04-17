@@ -1,11 +1,18 @@
-"""Worker + evidence-based verification rejection.
+"""Worker + evidence-based verification: now accepted.
 
-This combo is rejected at cue create/update time because cueapi-worker
-< 0.3.0 has no mechanism to attach evidence on the outcome report. The
-rejection is lifted in a later PR once cueapi-worker 0.3.0 is on PyPI.
+History: this file previously pinned the rejection of
+``(worker, require_*)`` combos because cueapi-worker < 0.3.0 had no
+mechanism to attach evidence on the outcome report. Those tests
+asserted 400 on create and PATCH.
 
-Eight tests: 3 evidence-requiring modes × (create, update, webhook
-allowed) + 2 worker-compatible modes confirming the combo is allowed.
+cueapi-worker 0.3.0 (CUEAPI_OUTCOME_FILE) shipped to PyPI 2026-04-17
+and closes that gap: the handler writes evidence to a per-run temp
+file, the daemon merges it into the outcome POST. The rejection was
+lifted in the PR that replaces this file's content.
+
+The assertions below now pin the accept behavior. Retained for
+regression: if anyone reintroduces the combo-rejection they'll see
+these tests fail and have to rationalize the rollback.
 """
 from __future__ import annotations
 
@@ -34,13 +41,13 @@ def _cue_body(*, transport="worker", mode=None, name=None):
     return body
 
 
-class TestWorkerEvidenceRejectedAtCreate:
+class TestWorkerEvidenceAcceptedAtCreate:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "mode",
         ["require_external_id", "require_result_url", "require_artifacts"],
     )
-    async def test_worker_plus_evidence_mode_rejected(
+    async def test_worker_plus_evidence_mode_accepted(
         self, client: AsyncClient, auth_headers, mode
     ):
         resp = await client.post(
@@ -48,13 +55,10 @@ class TestWorkerEvidenceRejectedAtCreate:
             headers=auth_headers,
             json=_cue_body(transport="worker", mode=mode),
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 201, resp.text
         body = resp.json()
-        err = body["detail"]["error"] if "detail" in body else body["error"]
-        assert err["code"] == "unsupported_verification_for_transport"
-        assert err["transport"] == "worker"
-        assert err["verification_mode"] == mode
-        assert err["supported_worker_modes"] == ["none", "manual"]
+        assert body["verification"] == {"mode": mode}
+        assert body["transport"] == "worker" or body["callback"]["transport"] == "worker"
 
 
 class TestWorkerCompatibleModesAcceptedAtCreate:
@@ -102,10 +106,11 @@ class TestWebhookAllModesAccepted:
 
 class TestPatchTransitions:
     @pytest.mark.asyncio
-    async def test_patch_worker_to_evidence_mode_rejected(
+    async def test_patch_worker_to_evidence_mode_accepted(
         self, client: AsyncClient, auth_headers
     ):
-        # Create worker cue with no verification
+        # Create worker cue with no verification, then PATCH to an
+        # evidence-requiring mode. Previously this returned 400; now 200.
         create = await client.post(
             "/v1/cues",
             headers=auth_headers,
@@ -114,16 +119,13 @@ class TestPatchTransitions:
         assert create.status_code == 201
         cue_id = create.json()["id"]
 
-        # Try to PATCH verification to an evidence-requiring mode
         resp = await client.patch(
             f"/v1/cues/{cue_id}",
             headers=auth_headers,
             json={"verification": {"mode": "require_external_id"}},
         )
-        assert resp.status_code == 400
-        body = resp.json()
-        err = body["detail"]["error"] if "detail" in body else body["error"]
-        assert err["code"] == "unsupported_verification_for_transport"
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["verification"] == {"mode": "require_external_id"}
 
     @pytest.mark.asyncio
     async def test_patch_webhook_to_evidence_mode_accepted(
@@ -163,4 +165,3 @@ class TestPatchTransitions:
             json={"verification": {"mode": "manual"}},
         )
         assert resp.status_code == 200
-        assert resp.json()["verification"] == {"mode": "manual"}
