@@ -29,6 +29,49 @@ def validate_cron(expression: str) -> bool:
         return False
 
 
+# Verification modes that require evidence on the outcome report.
+# Worker transport (today) has no path to attach evidence on the single
+# outcome POST, so these modes are rejected for worker cues at create /
+# update time. Ref: cueapi-worker < 0.3.0. This rejection is lifted in
+# a later PR once cueapi-worker 0.3.0 (CUEAPI_OUTCOME_FILE) is on PyPI.
+_EVIDENCE_REQUIRING_MODES = frozenset(
+    {"require_external_id", "require_result_url", "require_artifacts"}
+)
+_WORKER_COMPATIBLE_MODES = ("none", "manual")
+
+
+def _check_transport_verification_combo(
+    transport: str, mode: Optional[str]
+) -> Optional[dict]:
+    """Reject worker transport paired with evidence-based verification.
+
+    Returns an error dict (matching the service-layer error shape) when
+    the combination is invalid, or None when it's fine. Lives here
+    rather than as a Pydantic validator because the existing API shape
+    uses structured 400 errors (``{"error": {"code": ...}}``) and
+    Pydantic ValueErrors surface as 422 with a different schema.
+    """
+    if transport != "worker" or not mode or mode in _WORKER_COMPATIBLE_MODES:
+        return None
+    if mode not in _EVIDENCE_REQUIRING_MODES:
+        return None
+    return {
+        "error": {
+            "code": "unsupported_verification_for_transport",
+            "message": (
+                "Worker transport does not yet support evidence-based "
+                "verification modes. Use 'none' or 'manual' for worker "
+                "cues, or switch to webhook transport for evidence "
+                "verification."
+            ),
+            "status": 400,
+            "transport": "worker",
+            "verification_mode": mode,
+            "supported_worker_modes": list(_WORKER_COMPATIBLE_MODES),
+        }
+    }
+
+
 def _contains_null_byte(obj) -> bool:
     """Recursively check if any string in a dict/list contains a null byte."""
     if isinstance(obj, str):
@@ -81,6 +124,9 @@ def _cue_to_response(cue: Cue) -> CueResponse:
         "backoff_minutes": cue.retry_backoff_minutes,
     }
 
+    verification_mode = getattr(cue, "verification_mode", None)
+    verification = {"mode": verification_mode} if verification_mode else None
+
     return CueResponse(
         id=cue.id,
         name=cue.name,
@@ -96,6 +142,7 @@ def _cue_to_response(cue: Cue) -> CueResponse:
         run_count=cue.run_count,
         fired_count=getattr(cue, 'fired_count', 0) or 0,
         on_failure=getattr(cue, 'on_failure', None),
+        verification=verification,
         created_at=cue.created_at,
         updated_at=cue.updated_at,
     )
@@ -156,6 +203,17 @@ async def create_cue(db: AsyncSession, user: AuthenticatedUser, data: CueCreate)
     # Validate callback URL (SSRF protection) — skip for worker transport
     transport = data.transport or "webhook"
     warning = None
+
+    # Reject worker transport paired with evidence-based verification.
+    # See ``_check_transport_verification_combo`` for the rationale —
+    # this will be lifted once cueapi-worker 0.3.0 (evidence reporting
+    # via CUEAPI_OUTCOME_FILE) is on PyPI.
+    if data.verification is not None:
+        combo_err = _check_transport_verification_combo(
+            transport, data.verification.mode.value
+        )
+        if combo_err is not None:
+            return combo_err
 
     if transport == "webhook":
         is_valid, error_msg = validate_callback_url(str(data.callback.url), settings.ENV)
@@ -252,6 +310,10 @@ async def create_cue(db: AsyncSession, user: AuthenticatedUser, data: CueCreate)
     else:
         on_failure_dict = {"email": True, "webhook": None, "pause": False}
 
+    verification_mode = (
+        data.verification.mode.value if data.verification is not None else None
+    )
+
     cue = Cue(
         id=generate_cue_id(),
         user_id=user.id,
@@ -271,6 +333,7 @@ async def create_cue(db: AsyncSession, user: AuthenticatedUser, data: CueCreate)
         retry_backoff_minutes=retry.backoff_minutes,
         next_run=next_run,
         on_failure=on_failure_dict,
+        verification_mode=verification_mode,
     )
 
     db.add(cue)
@@ -392,6 +455,18 @@ async def update_cue(db: AsyncSession, user: AuthenticatedUser, cue_id: str, dat
     if data.retry is not None:
         cue.retry_max_attempts = data.retry.max_attempts
         cue.retry_backoff_minutes = data.retry.backoff_minutes
+
+    # Verification policy update. Validate the *resulting* (transport,
+    # mode) combo — transport is effectively immutable via PATCH today,
+    # so the resulting transport is whatever the cue currently has.
+    if data.verification is not None:
+        resulting_transport = cue.callback_transport or "webhook"
+        combo_err = _check_transport_verification_combo(
+            resulting_transport, data.verification.mode.value
+        )
+        if combo_err is not None:
+            return combo_err
+        cue.verification_mode = data.verification.mode.value
 
     if data.on_failure is not None:
         if data.on_failure.webhook:

@@ -1,11 +1,40 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 from app.schemas.execution import ExecutionResponse
+
+
+class VerificationMode(str, Enum):
+    """Outcome-verification policy for a cue.
+
+    - ``none``: the reported ``success`` bool is final. Default.
+    - ``require_external_id``/``result_url``/``artifacts``: evidence
+      field must be present on the outcome report; if missing, the
+      execution is marked ``verification_failed``. If present and
+      ``success=True``, the execution is marked ``verified_success``.
+    - ``manual``: every successful outcome sits in
+      ``verification_pending`` until someone calls
+      ``POST /v1/executions/{id}/verify``.
+    """
+
+    none = "none"
+    require_external_id = "require_external_id"
+    require_result_url = "require_result_url"
+    require_artifacts = "require_artifacts"
+    manual = "manual"
+
+
+class VerificationPolicy(BaseModel):
+    """Outcome-verification policy. Only ``mode`` today; kept as a
+    sub-object so future fields (e.g. ``auto_verify_after``) can be
+    added without breaking the API shape."""
+
+    mode: VerificationMode = Field(default=VerificationMode.none)
 
 
 class ScheduleCreate(BaseModel):
@@ -43,6 +72,7 @@ class CueCreate(BaseModel):
     payload: Optional[dict] = Field(default={})
     retry: Optional[RetryConfig] = Field(default_factory=RetryConfig)
     on_failure: Optional[OnFailureConfig] = Field(default_factory=OnFailureConfig)
+    verification: Optional[VerificationPolicy] = None
 
     @model_validator(mode="after")
     def validate_transport(self) -> "CueCreate":
@@ -73,6 +103,7 @@ class CueUpdate(BaseModel):
     payload: Optional[dict] = None
     retry: Optional[RetryConfig] = None
     on_failure: Optional[OnFailureConfig] = None
+    verification: Optional[VerificationPolicy] = None
 
     @field_validator("status")
     @classmethod
@@ -97,6 +128,7 @@ class CueResponse(BaseModel):
     run_count: int
     fired_count: int = 0
     on_failure: Optional[dict] = None
+    verification: Optional[dict] = None
     warning: Optional[str] = None
     created_at: datetime
     updated_at: datetime

@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -331,29 +332,86 @@ async def replay_execution(
 # ── Verify ──
 
 
+class VerifyRequest(BaseModel):
+    """Body for ``POST /v1/executions/{id}/verify``.
+
+    Body is optional — a request with no body (or ``{}``) defaults to
+    ``valid=true`` so the previous always-success behavior remains the
+    default. ``valid=false`` is the new branch: it transitions to
+    ``verification_failed`` and optionally persists a human-readable
+    ``reason`` onto ``evidence_summary``.
+    """
+
+    valid: bool = True
+    reason: Optional[str] = None
+
+
 @router.post("/{execution_id}/verify")
 async def verify_execution(
     execution_id: str,
+    body: Optional[VerifyRequest] = Body(None),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Mark execution outcome as verified."""
+    """Mark execution outcome as verified or verification-failed.
+
+    Accepts ``{valid: bool, reason: str?}``. ``valid=true`` (default)
+    transitions to ``verified_success``; ``valid=false`` transitions to
+    ``verification_failed`` and records the reason on
+    ``evidence_summary`` (truncated to 500 chars). Accepted starting
+    states: ``reported_success``, ``reported_failure``,
+    ``verification_pending``.
+    """
     result = await db.execute(
         select(Execution).join(Cue, Execution.cue_id == Cue.id)
         .where(Execution.id == execution_id, Cue.user_id == user.id)
     )
     execution = result.scalar_one_or_none()
     if not execution:
-        raise HTTPException(status_code=404)
+        raise HTTPException(status_code=404, detail={"error": {"code": "execution_not_found", "message": "Execution not found", "status": 404}})
 
-    if execution.outcome_state not in {"reported_success", "verification_pending"}:
-        raise HTTPException(status_code=409, detail={"error": {"code": "invalid_state", "message": f"Cannot verify from state '{execution.outcome_state}'"}})
+    if execution.outcome_state not in {
+        "reported_success",
+        "reported_failure",
+        "verification_pending",
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "code": "invalid_state",
+                    "message": f"Cannot verify from state '{execution.outcome_state}'",
+                    "status": 409,
+                }
+            },
+        )
 
-    execution.outcome_state = "verified_success"
-    execution.evidence_validation_state = "valid"
-    execution.updated_at = datetime.now(timezone.utc)
+    payload = body or VerifyRequest()
+    now = datetime.now(timezone.utc)
+    if payload.valid:
+        execution.outcome_state = "verified_success"
+        execution.evidence_validation_state = "valid"
+    else:
+        execution.outcome_state = "verification_failed"
+        execution.evidence_validation_state = "invalid"
+        if payload.reason:
+            # Persist reason alongside any existing summary; truncate
+            # to the column cap. We prepend so operators who set a
+            # summary at outcome-report time still see it.
+            truncated = payload.reason[:500]
+            if execution.evidence_summary:
+                combined = f"{execution.evidence_summary} | verification rejected: {truncated}"
+                execution.evidence_summary = combined[:500]
+            else:
+                execution.evidence_summary = truncated
+    execution.updated_at = now
     await db.commit()
-    return {"execution_id": str(execution_id), "outcome_state": "verified_success"}
+    return {
+        "execution_id": str(execution_id),
+        "outcome_state": execution.outcome_state,
+        "valid": payload.valid,
+        "reason": payload.reason,
+    }
 
 
 # ── Verification pending ──

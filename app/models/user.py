@@ -19,5 +19,13 @@ class User(Base):
     rate_limit_per_minute = Column(Integer, nullable=False, default=60)
     webhook_secret = Column(String(80), nullable=False)
     api_key_encrypted = Column(String(256), nullable=True)
+    # Optional HTTPS endpoint that receives alert webhooks (signed).
+    # If NULL, alerts are persisted but not delivered — users poll
+    # ``GET /v1/alerts``.
+    alert_webhook_url = Column(String(2048), nullable=True)
+    # HMAC-SHA256 signing key for alert webhook payloads. Generated
+    # lazily on first ``GET /v1/auth/alert-webhook-secret`` and rotatable
+    # via ``POST /v1/auth/alert-webhook-secret/regenerate``.
+    alert_webhook_secret = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

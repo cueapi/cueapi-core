@@ -5,8 +5,9 @@ from app.models.dispatch_outbox import DispatchOutbox
 from app.models.usage_monthly import UsageMonthly
 from app.models.device_code import DeviceCode
 from app.models.worker import Worker
+from app.models.alert import Alert
 
 __all__ = [
     "User", "Cue", "Execution", "DispatchOutbox", "UsageMonthly", "DeviceCode",
-    "Worker",
+    "Worker", "Alert",
 ]

@@ -7,6 +7,22 @@
     {
       "path": "app/services/email_service.py",
       "reason": "OSS ships a minimal email service that delegates to SMTP. Private uses SendGrid and a different module layout."
+    },
+    {
+      "path": "alembic/versions/017_add_verification_mode.py",
+      "reason": "OSS-specific filename. Hosted ships equivalent verification_mode functionality at a different migration number (hosted's 017 is 017_add_support_ticket_updated_at.py). Feature parity is at the app-layer (cue.py, schemas, services) — those files ARE in the manifest."
+    },
+    {
+      "path": "alembic/versions/018_add_alerts_table.py",
+      "reason": "OSS-specific filename. Hosted's alerts table was added earlier at a different migration number. App-layer parity is tracked via alert.py / alerts.py / alert_service.py entries."
+    },
+    {
+      "path": "alembic/versions/019_add_user_alert_webhook.py",
+      "reason": "OSS-specific filename. Hosted back-ported this as migration 038_add_user_alert_webhook.py (staging PR #259). Feature is the same; path differs due to independent migration histories."
+    },
+    {
+      "path": "examples/alert_webhook_receiver.py",
+      "reason": "OSS-only example. Hosted has no examples/ directory; this is a self-hoster-facing reference."
     }
   ],
   "files": {
@@ -45,6 +61,7 @@
     ],
     "models": [
       {"path": "app/models/__init__.py", "private_counterpart": "app/models/__init__.py", "last_synced": "2026-04-16"},
+      {"path": "app/models/alert.py", "private_counterpart": "app/models/alert.py", "last_synced": "2026-04-17"},
       {"path": "app/models/cue.py", "private_counterpart": "app/models/cue.py", "last_synced": "2026-04-16"},
       {"path": "app/models/device_code.py", "private_counterpart": "app/models/device_code.py", "last_synced": "2026-04-16"},
       {"path": "app/models/dispatch_outbox.py", "private_counterpart": "app/models/dispatch_outbox.py", "last_synced": "2026-04-16"},
@@ -55,6 +72,7 @@
     ],
     "routers": [
       {"path": "app/routers/__init__.py", "private_counterpart": "app/routers/__init__.py", "last_synced": "2026-04-16"},
+      {"path": "app/routers/alerts.py", "private_counterpart": "app/routers/alerts.py", "last_synced": "2026-04-17"},
       {"path": "app/routers/auth_routes.py", "private_counterpart": "app/routers/auth_routes.py", "last_synced": "2026-04-16"},
       {"path": "app/routers/cues.py", "private_counterpart": "app/routers/cues.py", "last_synced": "2026-04-16"},
       {"path": "app/routers/device_code.py", "private_counterpart": "app/routers/device_code.py", "last_synced": "2026-04-16"},
@@ -67,6 +85,7 @@
     ],
     "schemas": [
       {"path": "app/schemas/__init__.py", "private_counterpart": "app/schemas/__init__.py", "last_synced": "2026-04-16"},
+      {"path": "app/schemas/alert.py", "private_counterpart": "app/schemas/alert.py", "last_synced": "2026-04-17"},
       {"path": "app/schemas/cue.py", "private_counterpart": "app/schemas/cue.py", "last_synced": "2026-04-16"},
       {"path": "app/schemas/execution.py", "private_counterpart": "app/schemas/execution.py", "last_synced": "2026-04-16"},
       {"path": "app/schemas/outcome.py", "private_counterpart": "app/schemas/outcome.py", "last_synced": "2026-04-16"},
@@ -74,6 +93,8 @@
     ],
     "services": [
       {"path": "app/services/__init__.py", "private_counterpart": "app/services/__init__.py", "last_synced": "2026-04-16"},
+      {"path": "app/services/alert_service.py", "private_counterpart": "app/services/alert_service.py", "last_synced": "2026-04-17"},
+      {"path": "app/services/alert_webhook.py", "private_counterpart": "app/services/alert_webhook.py", "last_synced": "2026-04-17"},
       {"path": "app/services/cue_service.py", "private_counterpart": "app/services/cue_service.py", "last_synced": "2026-04-16"},
       {"path": "app/services/device_code_service.py", "private_counterpart": "app/services/device_code_service.py", "last_synced": "2026-04-16"},
       {"path": "app/services/outcome_service.py", "private_counterpart": "app/services/outcome_service.py", "last_synced": "2026-04-16"},
