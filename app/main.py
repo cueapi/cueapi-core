@@ -10,7 +10,7 @@ from app.middleware.body_limit import BodySizeLimitMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.request_id import RequestIdMiddleware
 from app.redis import close_redis
-from app.routers import auth_routes, cues, device_code, echo, executions, health, usage, webhook_secret, workers
+from app.routers import alerts, auth_routes, cues, device_code, echo, executions, health, usage, webhook_secret, workers
 from app.utils.logging import setup_logging
 
 
@@ -43,6 +43,7 @@ openapi_tags = [
     {"name": "worker", "description": "Worker transport: heartbeat registration for pull-based execution delivery"},
     {"name": "usage", "description": "Usage stats and plan information"},
     {"name": "echo", "description": "Echo endpoint for testing webhook delivery"},
+    {"name": "alerts", "description": "Persisted alerts fired by outcome service; optional signed webhook delivery via alert_webhook_url"},
     {"name": "auth-pages", "description": "HTML pages for device code verification flow"},
 ]
 
@@ -158,3 +159,4 @@ app.include_router(echo.router)
 app.include_router(workers.router)
 app.include_router(workers.workers_list_router)
 app.include_router(webhook_secret.router)
+app.include_router(alerts.router)

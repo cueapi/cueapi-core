@@ -187,6 +187,67 @@ async def record_outcome(
 
     await db.commit()
 
+    # ── Alert firing (best-effort, post-commit) ──
+    # Each branch uses create_alert's dedup window (5 min) to collapse
+    # storms. Webhook delivery is fire-and-forget inside create_alert.
+    try:
+        from app.services.alert_service import (
+            CONSECUTIVE_FAILURE_THRESHOLD,
+            count_consecutive_failures,
+            create_alert,
+        )
+
+        # verification_failed: set by the PR #18 verification rule
+        # engine when required evidence is missing. On current main
+        # (pre-#18), nothing sets outcome_state to 'verification_failed'
+        # during record_outcome, so this branch is dormant. Once PR #18
+        # merges, the hook fires automatically without further changes.
+        if getattr(execution, "outcome_state", None) == "verification_failed":
+            await create_alert(
+                db,
+                user_id=user.id,
+                alert_type="verification_failed",
+                severity="warning",
+                message=(
+                    f"Execution {execution_id} reported success but failed "
+                    f"verification (required evidence missing)."
+                ),
+                execution_id=execution_id,
+                cue_id=execution.cue_id,
+                metadata={
+                    "outcome_state": "verification_failed",
+                    "transport": transport,
+                },
+            )
+            await db.commit()
+
+        # consecutive_failures: on a failed outcome, walk recent
+        # executions on this cue. If threshold reached, fire once
+        # (dedup keeps subsequent failures quiet for 5 min).
+        if not body.success:
+            streak = await count_consecutive_failures(db, execution.cue_id)
+            if streak >= CONSECUTIVE_FAILURE_THRESHOLD:
+                await create_alert(
+                    db,
+                    user_id=user.id,
+                    alert_type="consecutive_failures",
+                    severity="warning",
+                    message=(
+                        f"Cue {execution.cue_id} has {streak} consecutive "
+                        f"failed executions."
+                    ),
+                    execution_id=execution_id,
+                    cue_id=execution.cue_id,
+                    metadata={"consecutive_failures": streak},
+                )
+                await db.commit()
+    except Exception:
+        # Alert firing must never break outcome reporting.
+        logger.exception(
+            "Alert firing failed for execution %s (outcome was still recorded)",
+            execution_id,
+        )
+
     logger.info(
         "Outcome recorded",
         extra={

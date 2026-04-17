@@ -21,7 +21,7 @@ if not settings.SESSION_SECRET:
 
 from app.database import Base, get_db
 from app.main import app
-from app.models import Cue, DispatchOutbox, Execution, UsageMonthly, User, Worker, DeviceCode  # noqa: F401
+from app.models import Alert, Cue, DispatchOutbox, Execution, UsageMonthly, User, Worker, DeviceCode  # noqa: F401
 
 # Use the same database but create/drop tables for isolation
 TEST_DATABASE_URL = settings.DATABASE_URL

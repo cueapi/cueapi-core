@@ -248,6 +248,46 @@ Backward-compat paths still work: `POST /outcome` with just `{success: true}` be
 
 > Worker-transport cues can currently use `none` or `manual` only. Evidence-requiring modes (`require_external_id`, `require_result_url`, `require_artifacts`) are rejected at create/update time with `400 unsupported_verification_for_transport`. This restriction will be lifted once cueapi-worker 0.3.0 ships to PyPI with evidence reporting via `CUEAPI_OUTCOME_FILE`.
 
+## Alerts
+
+cueapi-core persists alerts when outcomes go wrong and — if you configure a webhook URL — POSTs them to you with an HMAC signature. Three alert types today:
+
+| Type | When it fires |
+|------|--------------|
+| `consecutive_failures` | Same cue reports `success=false` three runs in a row |
+| `verification_failed` | Outcome is missing evidence required by the cue's verification mode (see "Verification modes") |
+| `outcome_timeout` | Handler never reports an outcome before the deadline (not yet wired in OSS — coming with the deadline-checking poller) |
+
+Alerts are deduplicated per `(user, alert_type, execution_id)` within a 5-minute window so flapping executions don't flood your inbox.
+
+### Query alerts directly
+
+```bash
+curl http://localhost:8000/v1/alerts \
+  -H "Authorization: Bearer YOUR_API_KEY"
+# Optional filters: ?alert_type=consecutive_failures&since=2026-01-01T00:00:00Z&limit=20
+```
+
+### Receive alerts via webhook
+
+1. **Set your webhook URL:**
+   ```bash
+   curl -X PATCH http://localhost:8000/v1/auth/me \
+     -H "Authorization: Bearer YOUR_API_KEY" \
+     -d '{"alert_webhook_url": "https://your-server.example.com/cueapi-alerts"}'
+   ```
+
+2. **Retrieve your signing secret** (generated lazily on first call, 64 hex chars):
+   ```bash
+   curl http://localhost:8000/v1/auth/alert-webhook-secret \
+     -H "Authorization: Bearer YOUR_API_KEY"
+   ```
+   Rotate with `POST /v1/auth/alert-webhook-secret/regenerate` (requires `X-Confirm-Destructive: true`).
+
+3. **Verify incoming alerts** on your end. See [`examples/alert_webhook_receiver.py`](examples/alert_webhook_receiver.py) for a 30-line Flask receiver. Each POST carries `X-CueAPI-Signature: v1=<hex>`, `X-CueAPI-Timestamp`, `X-CueAPI-Alert-Id`, and `X-CueAPI-Alert-Type`.
+
+> **Delivery path is HTTP only.** cueapi-core ships alert persistence + webhook delivery and nothing else. For email / SMS / Slack, point your `alert_webhook_url` at a forwarder you control, or use hosted cueapi.ai which includes managed email delivery via SendGrid. See [HOSTED_ONLY.md](HOSTED_ONLY.md) for the full open-core policy.
+
 ## What CueAPI is not
 
 - Not a workflow orchestrator
