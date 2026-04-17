@@ -2,6 +2,14 @@
 
 All notable changes to cueapi-core will be documented here.
 
+## [Unreleased]
+
+### Added
+- `HOSTED_ONLY.md` documenting the open-core policy — which features are OSS, which are intentionally hosted-only on cueapi.ai, and why.
+- `parity-manifest.json` enumerating files that have a same-path counterpart in the private cueapi monorepo. Used by the new parity-check workflow.
+- `.github/workflows/parity-check.yml` — soft-enforcement CI that posts a comment on PRs which touch tracked files, asking the author to cross-reference the private repo. Never blocks merge; exits 0 regardless.
+- README "Open core model" section near the top, linking to `HOSTED_ONLY.md`.
+
 ## [0.1.2] - 2026-03-28
 
 ### Security

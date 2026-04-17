@@ -1,0 +1,94 @@
+{
+  "manifest_version": 1,
+  "description": "Files in cueapi-core that have a same-path counterpart in the private cueapi monorepo. Changes to the private counterpart should be considered for porting here; changes here should be cross-referenced to the private repo. The parity-check GitHub Action posts a soft warning on PRs that touch any of these paths. See HOSTED_ONLY.md for the open-core policy.",
+  "last_full_audit": "2026-04-16",
+  "methodology": "Enumerate app/**/*.py and alembic/**/*.py in cueapi-core; include every file whose same-path counterpart exists in the private cueapi clone at audit time. Files that are OSS-only (no private counterpart) are intentionally excluded — modifications to them do not need a parity cross-reference.",
+  "oss_only_exclusions": [
+    {
+      "path": "app/services/email_service.py",
+      "reason": "OSS ships a minimal email service that delegates to SMTP. Private uses SendGrid and a different module layout."
+    }
+  ],
+  "files": {
+    "alembic": [
+      {"path": "alembic/env.py", "private_counterpart": "alembic/env.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/001_initial_tables.py", "private_counterpart": "alembic/versions/001_initial_tables.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/002_executions_and_outbox.py", "private_counterpart": "alembic/versions/002_executions_and_outbox.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/003_usage_monthly.py", "private_counterpart": "alembic/versions/003_usage_monthly.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/004_device_codes.py", "private_counterpart": "alembic/versions/004_device_codes.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/005_add_retry_ready_status.py", "private_counterpart": "alembic/versions/005_add_retry_ready_status.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/006_add_outcome_columns.py", "private_counterpart": "alembic/versions/006_add_outcome_columns.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/007_worker_transport.py", "private_counterpart": "alembic/versions/007_worker_transport.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/008_add_webhook_secret.py", "private_counterpart": "alembic/versions/008_add_webhook_secret.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/009_fired_count_and_missed_status.py", "private_counterpart": "alembic/versions/009_fired_count_and_missed_status.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/010_unique_user_cue_name.py", "private_counterpart": "alembic/versions/010_unique_user_cue_name.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/011_add_blog_posts.py", "private_counterpart": "alembic/versions/011_add_blog_posts.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/012_add_content_trends.py", "private_counterpart": "alembic/versions/012_add_content_trends.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/013_add_blog_image_data.py", "private_counterpart": "alembic/versions/013_add_blog_image_data.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/014_add_support_tickets.py", "private_counterpart": "alembic/versions/014_add_support_tickets.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/015_widen_device_code_column.py", "private_counterpart": "alembic/versions/015_widen_device_code_column.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/016_add_on_failure_column.py", "private_counterpart": "alembic/versions/016_add_on_failure_column.py", "last_synced": "2026-04-16"}
+    ],
+    "app_core": [
+      {"path": "app/__init__.py", "private_counterpart": "app/__init__.py", "last_synced": "2026-04-16"},
+      {"path": "app/auth.py", "private_counterpart": "app/auth.py", "last_synced": "2026-04-16"},
+      {"path": "app/config.py", "private_counterpart": "app/config.py", "last_synced": "2026-04-16"},
+      {"path": "app/database.py", "private_counterpart": "app/database.py", "last_synced": "2026-04-16"},
+      {"path": "app/main.py", "private_counterpart": "app/main.py", "last_synced": "2026-04-16"},
+      {"path": "app/redis.py", "private_counterpart": "app/redis.py", "last_synced": "2026-04-16"}
+    ],
+    "middleware": [
+      {"path": "app/middleware/__init__.py", "private_counterpart": "app/middleware/__init__.py", "last_synced": "2026-04-16"},
+      {"path": "app/middleware/body_limit.py", "private_counterpart": "app/middleware/body_limit.py", "last_synced": "2026-04-16"},
+      {"path": "app/middleware/rate_limit.py", "private_counterpart": "app/middleware/rate_limit.py", "last_synced": "2026-04-16"},
+      {"path": "app/middleware/request_id.py", "private_counterpart": "app/middleware/request_id.py", "last_synced": "2026-04-16"}
+    ],
+    "models": [
+      {"path": "app/models/__init__.py", "private_counterpart": "app/models/__init__.py", "last_synced": "2026-04-16"},
+      {"path": "app/models/cue.py", "private_counterpart": "app/models/cue.py", "last_synced": "2026-04-16"},
+      {"path": "app/models/device_code.py", "private_counterpart": "app/models/device_code.py", "last_synced": "2026-04-16"},
+      {"path": "app/models/dispatch_outbox.py", "private_counterpart": "app/models/dispatch_outbox.py", "last_synced": "2026-04-16"},
+      {"path": "app/models/execution.py", "private_counterpart": "app/models/execution.py", "last_synced": "2026-04-16"},
+      {"path": "app/models/usage_monthly.py", "private_counterpart": "app/models/usage_monthly.py", "last_synced": "2026-04-16"},
+      {"path": "app/models/user.py", "private_counterpart": "app/models/user.py", "last_synced": "2026-04-16"},
+      {"path": "app/models/worker.py", "private_counterpart": "app/models/worker.py", "last_synced": "2026-04-16"}
+    ],
+    "routers": [
+      {"path": "app/routers/__init__.py", "private_counterpart": "app/routers/__init__.py", "last_synced": "2026-04-16"},
+      {"path": "app/routers/auth_routes.py", "private_counterpart": "app/routers/auth_routes.py", "last_synced": "2026-04-16"},
+      {"path": "app/routers/cues.py", "private_counterpart": "app/routers/cues.py", "last_synced": "2026-04-16"},
+      {"path": "app/routers/device_code.py", "private_counterpart": "app/routers/device_code.py", "last_synced": "2026-04-16"},
+      {"path": "app/routers/echo.py", "private_counterpart": "app/routers/echo.py", "last_synced": "2026-04-16"},
+      {"path": "app/routers/executions.py", "private_counterpart": "app/routers/executions.py", "last_synced": "2026-04-16"},
+      {"path": "app/routers/health.py", "private_counterpart": "app/routers/health.py", "last_synced": "2026-04-16"},
+      {"path": "app/routers/usage.py", "private_counterpart": "app/routers/usage.py", "last_synced": "2026-04-16"},
+      {"path": "app/routers/webhook_secret.py", "private_counterpart": "app/routers/webhook_secret.py", "last_synced": "2026-04-16"},
+      {"path": "app/routers/workers.py", "private_counterpart": "app/routers/workers.py", "last_synced": "2026-04-16"}
+    ],
+    "schemas": [
+      {"path": "app/schemas/__init__.py", "private_counterpart": "app/schemas/__init__.py", "last_synced": "2026-04-16"},
+      {"path": "app/schemas/cue.py", "private_counterpart": "app/schemas/cue.py", "last_synced": "2026-04-16"},
+      {"path": "app/schemas/execution.py", "private_counterpart": "app/schemas/execution.py", "last_synced": "2026-04-16"},
+      {"path": "app/schemas/outcome.py", "private_counterpart": "app/schemas/outcome.py", "last_synced": "2026-04-16"},
+      {"path": "app/schemas/worker.py", "private_counterpart": "app/schemas/worker.py", "last_synced": "2026-04-16"}
+    ],
+    "services": [
+      {"path": "app/services/__init__.py", "private_counterpart": "app/services/__init__.py", "last_synced": "2026-04-16"},
+      {"path": "app/services/cue_service.py", "private_counterpart": "app/services/cue_service.py", "last_synced": "2026-04-16"},
+      {"path": "app/services/device_code_service.py", "private_counterpart": "app/services/device_code_service.py", "last_synced": "2026-04-16"},
+      {"path": "app/services/outcome_service.py", "private_counterpart": "app/services/outcome_service.py", "last_synced": "2026-04-16"},
+      {"path": "app/services/usage_service.py", "private_counterpart": "app/services/usage_service.py", "last_synced": "2026-04-16"},
+      {"path": "app/services/webhook.py", "private_counterpart": "app/services/webhook.py", "last_synced": "2026-04-16"}
+    ],
+    "utils": [
+      {"path": "app/utils/__init__.py", "private_counterpart": "app/utils/__init__.py", "last_synced": "2026-04-16"},
+      {"path": "app/utils/auth_rate_limit.py", "private_counterpart": "app/utils/auth_rate_limit.py", "last_synced": "2026-04-16"},
+      {"path": "app/utils/ids.py", "private_counterpart": "app/utils/ids.py", "last_synced": "2026-04-16"},
+      {"path": "app/utils/logging.py", "private_counterpart": "app/utils/logging.py", "last_synced": "2026-04-16"},
+      {"path": "app/utils/session.py", "private_counterpart": "app/utils/session.py", "last_synced": "2026-04-16"},
+      {"path": "app/utils/signing.py", "private_counterpart": "app/utils/signing.py", "last_synced": "2026-04-16"},
+      {"path": "app/utils/templates.py", "private_counterpart": "app/utils/templates.py", "last_synced": "2026-04-16"},
+      {"path": "app/utils/url_validation.py", "private_counterpart": "app/utils/url_validation.py", "last_synced": "2026-04-16"}
+    ]
+  }
+}
