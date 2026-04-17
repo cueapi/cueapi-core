@@ -170,6 +170,9 @@ async def get_me(
 
 class PatchMeRequest(BaseModel):
     email: Optional[str] = None
+    # Alert webhook config. Pass an empty string to clear; pass a URL
+    # to set. SSRF-validated at set time.
+    alert_webhook_url: Optional[str] = None
 
 
 @router.patch("/me")
@@ -179,15 +182,81 @@ async def patch_me(
     db: AsyncSession = Depends(get_db),
 ):
     """Update user profile settings."""
+    from app.utils.url_validation import validate_callback_url
+
     now = datetime.now(timezone.utc)
     updates = {"updated_at": now}
     if body.email is not None:
         updates["email"] = body.email
-    if not updates or len(updates) == 1:  # only updated_at
+    if body.alert_webhook_url is not None:
+        if body.alert_webhook_url == "":
+            # Explicit clear
+            updates["alert_webhook_url"] = None
+        else:
+            is_valid, err = validate_callback_url(body.alert_webhook_url, settings.ENV)
+            if not is_valid:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"error": {"code": "invalid_alert_webhook_url", "message": err, "status": 400}},
+                )
+            updates["alert_webhook_url"] = body.alert_webhook_url
+    if len(updates) == 1:  # only updated_at
         raise HTTPException(status_code=422, detail={"error": {"code": "no_fields", "message": "No fields to update", "status": 422}})
     await db.execute(update(User).where(User.id == user.id).values(**updates))
     await db.commit()
     return {"updated_at": now.isoformat()}
+
+
+@router.get("/alert-webhook-secret")
+async def get_alert_webhook_secret(
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the HMAC signing secret for alert webhooks.
+
+    Lazily generated on first call — a fresh secret is persisted to
+    the user row and returned. Subsequent calls return the same value.
+    Rotate via ``POST /v1/auth/alert-webhook-secret/regenerate``.
+    """
+    import secrets as _secrets
+
+    row = await db.execute(
+        select(User.alert_webhook_secret).where(User.id == user.id)
+    )
+    existing = row.scalar_one_or_none()
+    if existing:
+        return {"alert_webhook_secret": existing}
+
+    new_secret = _secrets.token_hex(32)  # 64 hex chars
+    await db.execute(
+        update(User).where(User.id == user.id).values(alert_webhook_secret=new_secret)
+    )
+    await db.commit()
+    return {"alert_webhook_secret": new_secret}
+
+
+@router.post("/alert-webhook-secret/regenerate")
+async def regenerate_alert_webhook_secret(
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rotate the alert webhook signing secret. Old secret is
+    immediately invalidated. Requires ``X-Confirm-Destructive: true``
+    — rotation breaks receivers that haven't been updated."""
+    import secrets as _secrets
+
+    if request.headers.get("x-confirm-destructive") != "true":
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"code": "confirmation_required", "message": "This action is destructive. Set X-Confirm-Destructive: true header to confirm.", "status": 400}},
+        )
+    new_secret = _secrets.token_hex(32)
+    await db.execute(
+        update(User).where(User.id == user.id).values(alert_webhook_secret=new_secret)
+    )
+    await db.commit()
+    return {"alert_webhook_secret": new_secret, "previous_secret_revoked": True}
 
 
 class SessionRequest(BaseModel):
