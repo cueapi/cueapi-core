@@ -252,7 +252,7 @@ curl -X POST http://localhost:8000/v1/executions/EXEC_ID/verify \
 
 Backward-compat paths still work: `POST /outcome` with just `{success: true}` behaves identically to before, and `PATCH /v1/executions/{id}/evidence` remains available as a two-step alternative.
 
-> Worker-transport cues can currently use `none` or `manual` only. Evidence-requiring modes (`require_external_id`, `require_result_url`, `require_artifacts`) are rejected at create/update time with `400 unsupported_verification_for_transport`. This restriction will be lifted once cueapi-worker 0.3.0 ships to PyPI with evidence reporting via `CUEAPI_OUTCOME_FILE`.
+> Worker-transport cues accept every verification mode. Handlers report evidence via `$CUEAPI_OUTCOME_FILE` (cueapi-worker >= 0.3.0 on PyPI as of 2026-04-17). The daemon reads the file after the handler exits and merges the evidence into its outcome POST. If you're still on an older cueapi-worker, the evidence modes will land in `verification_failed` for every execution — `pip install --upgrade cueapi-worker` to unblock.
 
 ## Alerts
 
