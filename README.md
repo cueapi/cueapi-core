@@ -1,5 +1,5 @@
 <!-- Pipeline validation: 2026-04-04 -->
-> **For AI agents:** This is the CueAPI server. Run it with `git clone https://github.com/cueapi/cueapi-core && cd cueapi-core && docker compose up`. Base URL: `http://localhost:8000`. Register: `POST /v1/auth/register` with `{"email": "you@example.com"}` -- API key is returned directly in the response. No email required. All requests need `Authorization: Bearer YOUR_API_KEY`. Create a cue: `POST /v1/cues` with `{"name": "task-name", "schedule": {"type": "recurring", "cron": "0 9 * * *"}, "callback": {"url": "https://your-handler.com"}}`. Check executions: `GET /v1/executions`. Report outcome from your handler by responding with `{"success": true}` or `{"success": false, "error": "reason"}`. Retries happen automatically at 1, 5, and 15 minutes on failure.
+> **For AI agents:** This is the CueAPI server. Run it with `git clone https://github.com/cueapi/cueapi-core && cd cueapi-core && docker compose up`. Base URL: `http://localhost:8000`. Register: `POST /v1/auth/register` with `{"email": "you@example.com"}`. API key is returned directly in the response. No email required. All requests need `Authorization: Bearer YOUR_API_KEY`. Create a cue: `POST /v1/cues` with `{"name": "task-name", "schedule": {"type": "recurring", "cron": "0 9 * * *"}, "callback": {"url": "https://your-handler.com"}}`. Check executions: `GET /v1/executions`. Report outcome from your handler by responding with `{"success": true}` or `{"success": false, "error": "reason"}`. Retries happen automatically at 1, 5, and 15 minutes on failure.
 
 # CueAPI
 
@@ -17,9 +17,9 @@ The open source server for CueAPI. Run it yourself with Docker. Hosted at [cueap
 
 ## Open core model
 
-cueapi-core is the scheduling + delivery + outcome-tracking engine. Hosted cueapi.ai adds a dashboard, managed email alerts, billing, and a few other SaaS-business-layer features — see [HOSTED_ONLY.md](HOSTED_ONLY.md) for the full list and reasoning. Nothing in the OSS scheduler is crippled; what's here is what runs in production.
+cueapi-core is the scheduling + delivery + outcome-tracking engine. Hosted cueapi.ai adds a dashboard, managed email alerts, billing, and a few other SaaS-business-layer features. See [HOSTED_ONLY.md](HOSTED_ONLY.md) for the full list and reasoning. Nothing in the OSS scheduler is crippled; what's here is what runs in production.
 
-If you want a hosted-only feature ported to OSS, [open an issue](https://github.com/cueapi/cueapi-core/issues/new) — see the "Contributing a port" section in [HOSTED_ONLY.md](HOSTED_ONLY.md).
+If you want a hosted-only feature ported to OSS, [open an issue](https://github.com/cueapi/cueapi-core/issues/new). See the "Contributing a port" section in [HOSTED_ONLY.md](HOSTED_ONLY.md).
 
 ---
 
@@ -155,11 +155,11 @@ Client -> API -> PostgreSQL (cue + outbox in same transaction)
 
 **Key design decisions:**
 
-- **Transactional outbox** -- cue creation and delivery scheduling are atomic. No job is ever lost.
-- **SELECT FOR UPDATE SKIP LOCKED** -- claim races solved at the database level, no distributed locking needed.
-- **At-least-once delivery** -- guaranteed. Handlers should be idempotent.
-- **Worker pull model** -- no inbound firewall rules, no ngrok, no public URL required.
-- **Outcome separation** -- delivery status (did we reach your handler?) and outcome (did your handler succeed?) are tracked independently.
+- **Transactional outbox.** Cue creation and delivery scheduling are atomic. No job is ever lost.
+- **SELECT FOR UPDATE SKIP LOCKED.** Claim races solved at the database level, no distributed locking needed.
+- **At-least-once delivery.** Guaranteed. Handlers should be idempotent.
+- **Worker pull model.** No inbound firewall rules, no ngrok, no public URL required.
+- **Outcome separation.** Delivery status (did we reach your handler?) and outcome (did your handler succeed?) are tracked independently.
 
 ## API reference
 
@@ -220,7 +220,7 @@ Five modes:
 
 | Mode | Behavior |
 |------|----------|
-| `none` (default) | Reported `success` is final — `reported_success` / `reported_failure`. |
+| `none` (default) | Reported `success` is final. Resolves to `reported_success` or `reported_failure`. |
 | `require_external_id` | Outcome must include `external_id`. Missing → `verification_failed`. Present → `verified_success`. |
 | `require_result_url` | Outcome must include `result_url`. |
 | `require_artifacts` | Outcome must include `artifacts` (non-empty). |
@@ -252,17 +252,17 @@ curl -X POST http://localhost:8000/v1/executions/EXEC_ID/verify \
 
 Backward-compat paths still work: `POST /outcome` with just `{success: true}` behaves identically to before, and `PATCH /v1/executions/{id}/evidence` remains available as a two-step alternative.
 
-> Worker-transport cues accept every verification mode. Handlers report evidence via `$CUEAPI_OUTCOME_FILE` (cueapi-worker >= 0.3.0 on PyPI as of 2026-04-17). The daemon reads the file after the handler exits and merges the evidence into its outcome POST. If you're still on an older cueapi-worker, the evidence modes will land in `verification_failed` for every execution — `pip install --upgrade cueapi-worker` to unblock.
+> Worker-transport cues accept every verification mode. Handlers report evidence via `$CUEAPI_OUTCOME_FILE` (cueapi-worker >= 0.3.0 on PyPI as of 2026-04-17). The daemon reads the file after the handler exits and merges the evidence into its outcome POST. If you're still on an older cueapi-worker, the evidence modes will land in `verification_failed` for every execution. Run `pip install --upgrade cueapi-worker` to unblock.
 
 ## Alerts
 
-cueapi-core persists alerts when outcomes go wrong and — if you configure a webhook URL — POSTs them to you with an HMAC signature. Three alert types today:
+cueapi-core persists alerts when outcomes go wrong. If you configure a webhook URL, they are POSTed to you with an HMAC signature. Three alert types today:
 
 | Type | When it fires |
 |------|--------------|
 | `consecutive_failures` | Same cue reports `success=false` three runs in a row |
 | `verification_failed` | Outcome is missing evidence required by the cue's verification mode (see "Verification modes") |
-| `outcome_timeout` | Handler never reports an outcome before the deadline (not yet wired in OSS — coming with the deadline-checking poller) |
+| `outcome_timeout` | Handler never reports an outcome before the deadline (not yet wired in OSS; coming with the deadline-checking poller) |
 
 Alerts are deduplicated per `(user, alert_type, execution_id)` within a 5-minute window so flapping executions don't flood your inbox.
 
@@ -325,7 +325,7 @@ Don't want to manage the infrastructure? [cueapi.ai](https://cueapi.ai) is the h
 
 ## SDKs
 
-- [cueapi-python](https://github.com/cueapi/cueapi-python) -- Official Python SDK (`pip install cueapi-sdk`)
+- [cueapi-python](https://github.com/cueapi/cueapi-python). Official Python SDK (`pip install cueapi-sdk`)
 
 ## Contributing
 
