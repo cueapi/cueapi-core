@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import hmac
 import json
 import logging
+import uuid
 
 from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.models.user import User
 from app.redis import get_redis
@@ -38,10 +41,95 @@ async def get_current_user(
 
     token = auth_header.removeprefix("Bearer ").strip()
 
+    # ─── PR-5c: internal-token auth path ────────────────────────────
+    #
+    # When ``EXTERNAL_AUTH_BACKEND=True`` is configured, requests
+    # carrying the shared ``INTERNAL_AUTH_TOKEN`` are treated as
+    # service-to-service calls. The caller declares which user the
+    # request acts as via ``X-On-Behalf-Of: <user_id>``. The user
+    # must already exist (integrator-side upserts via
+    # ``PUT /v1/internal/users/{user_id}`` or direct DB writes).
+    #
+    # Constant-time comparison protects against timing-based token
+    # leaks. Only checked when the flag is on AND the env-var token
+    # is non-empty — otherwise the path is unreachable (and falls
+    # through to the per-user API-key check below).
+    if (
+        settings.EXTERNAL_AUTH_BACKEND
+        and settings.INTERNAL_AUTH_TOKEN
+        and hmac.compare_digest(token, settings.INTERNAL_AUTH_TOKEN)
+    ):
+        return await _auth_via_internal_token(request, db)
+
     if token.startswith("cue_sk_"):
         return await _auth_via_api_key(token, db)
     else:
         return await _auth_via_session_jwt(token, db)
+
+
+async def _auth_via_internal_token(
+    request: Request, db: AsyncSession
+) -> AuthenticatedUser:
+    """Resolve the ``X-On-Behalf-Of`` header to a User row.
+
+    Auth has already passed (token matched INTERNAL_AUTH_TOKEN). This
+    function just validates the header is present + parseable, and
+    that the referenced user exists.
+    """
+    on_behalf_of = request.headers.get("X-On-Behalf-Of") or ""
+    if not on_behalf_of:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "code": "internal_token_requires_on_behalf_of",
+                    "message": (
+                        "Internal-token auth requires X-On-Behalf-Of header "
+                        "with a user UUID."
+                    ),
+                    "status": 400,
+                }
+            },
+        )
+    try:
+        user_uuid = uuid.UUID(on_behalf_of)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "code": "invalid_on_behalf_of",
+                    "message": "X-On-Behalf-Of must be a valid UUID.",
+                    "status": 400,
+                }
+            },
+        )
+
+    result = await db.execute(select(User).where(User.id == user_uuid))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "code": "user_not_found",
+                    "message": (
+                        "User referenced in X-On-Behalf-Of does not exist. "
+                        "Upsert via PUT /v1/internal/users/{user_id} first."
+                    ),
+                    "status": 404,
+                }
+            },
+        )
+
+    return AuthenticatedUser(
+        id=str(user.id),
+        email=user.email,
+        plan=user.plan,
+        active_cue_limit=user.active_cue_limit,
+        monthly_execution_limit=user.monthly_execution_limit,
+        rate_limit_per_minute=user.rate_limit_per_minute,
+    )
 
 
 async def _auth_via_api_key(api_key: str, db: AsyncSession) -> AuthenticatedUser:

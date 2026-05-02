@@ -32,6 +32,39 @@ class Settings(BaseSettings):
     POLLER_LEADER_LOCK_TTL_SECONDS: int = 30
     SESSION_SECRET: str = ""
 
+    # ─── Dock-readiness external auth backend (PR-5c) ───────────────
+    #
+    # When ``EXTERNAL_AUTH_BACKEND=True``:
+    #
+    # 1. Activates the internal-token auth path in ``app/auth.py``.
+    #    Bearer requests carrying ``INTERNAL_AUTH_TOKEN`` (constant-time
+    #    compared) are treated as service-to-service calls. The caller
+    #    sets the ``X-On-Behalf-Of: <user_id>`` header to specify which
+    #    user the request acts as. The user must already exist in the
+    #    ``users`` table (the integrator is responsible for upserting).
+    #
+    # 2. Implies device-code-stripping semantics — the email-magic-link
+    #    signup is meaningless in this mode (the integrator owns
+    #    identity).
+    #
+    # 3. Exposes ``PUT /v1/internal/users/{user_id}`` for the integrator
+    #    to upsert user rows from its own identity system. Auth: only
+    #    the INTERNAL_AUTH_TOKEN bearer can call it.
+    #
+    # The per-user API key path (``cue_sk_*``) and JWT session path
+    # remain available — turning this flag on is additive, not
+    # mutually exclusive. A self-host can support both internal-token
+    # service traffic AND legacy API-key traffic (for migration).
+    EXTERNAL_AUTH_BACKEND: bool = False
+
+    # The shared service-to-service token. MUST be set when
+    # EXTERNAL_AUTH_BACKEND=True; otherwise the internal-token auth
+    # path is unreachable (constant-time compare against the empty
+    # string would always fail anyway, but we hard-check at startup).
+    # Value should be a high-entropy random string (>= 32 chars).
+    # Generate with: ``python3 -c "import secrets; print(secrets.token_urlsafe(48))"``
+    INTERNAL_AUTH_TOKEN: str = ""
+
     @property
     def async_database_url(self) -> str:
         """Convert postgresql:// to postgresql+asyncpg://."""

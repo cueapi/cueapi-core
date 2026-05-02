@@ -6,11 +6,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.config import settings
 from app.middleware.body_limit import BodySizeLimitMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.request_id import RequestIdMiddleware
 from app.redis import close_redis
-from app.routers import agents, alerts, auth_routes, cues, device_code, echo, executions, health, messages, usage, webhook_secret, workers
+from app.routers import agents, alerts, auth_routes, cues, device_code, echo, executions, health, internal_users, messages, usage, webhook_secret, workers
 from app.utils.logging import setup_logging
 
 
@@ -162,3 +163,9 @@ app.include_router(webhook_secret.router)
 app.include_router(alerts.router)
 app.include_router(agents.router)
 app.include_router(messages.router)
+
+# ─── PR-5c: external auth backend internal endpoints ──────────────
+# Only mounted when the integrator has opted into the internal-token
+# auth model. Default deployments don't expose ``/v1/internal/*``.
+if settings.EXTERNAL_AUTH_BACKEND:
+    app.include_router(internal_users.router)
