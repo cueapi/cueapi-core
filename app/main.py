@@ -11,7 +11,7 @@ from app.middleware.body_limit import BodySizeLimitMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.request_id import RequestIdMiddleware
 from app.redis import close_redis
-from app.routers import agents, alerts, auth_routes, cues, device_code, echo, executions, health, internal_users, messages, usage, webhook_secret, workers
+from app.routers import agent_shells, agents, alerts, auth_routes, cues, device_code, echo, executions, health, internal_users, messages, usage, webhook_secret, workers
 from app.utils.logging import setup_logging
 
 
@@ -162,6 +162,7 @@ app.include_router(workers.workers_list_router)
 app.include_router(webhook_secret.router)
 app.include_router(alerts.router)
 app.include_router(agents.router)
+app.include_router(agent_shells.router)
 app.include_router(messages.router)
 
 # ─── PR-5c: external auth backend internal endpoints ──────────────
