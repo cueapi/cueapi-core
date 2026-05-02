@@ -149,16 +149,24 @@ async def generic_error_handler(request: Request, exc: Exception):
     )
 
 
+# ─── Router registration ────────────────────────────────────────────
+#
+# Three packaging-mode flags from app/config.py (PR-5d) gate which
+# routers mount at startup. Defaults preserve full cueapi-core
+# behavior. Self-host integrators flip flags via env var.
+#
+#   DISABLE_DEVICE_CODE       — strips email-magic-link signup flow
+#   DISABLE_CUE_PRIMITIVE     — strips cron / cues / executions / workers
+#   (DISABLE_QUOTA_ENFORCEMENT lives in service-layer checks, not here)
+#
+# Always-on routers come first: health, auth (token validation), agents,
+# messages, alerts, webhook_secret, usage. These are essential whether
+# the deployment is full / messaging-only / cron-only.
+
 app.include_router(health.router)
 app.include_router(auth_routes.router)
-app.include_router(device_code.router)
-app.include_router(device_code.page_router)
-app.include_router(cues.router)
-app.include_router(executions.router)
 app.include_router(usage.router)
 app.include_router(echo.router)
-app.include_router(workers.router)
-app.include_router(workers.workers_list_router)
 app.include_router(webhook_secret.router)
 app.include_router(alerts.router)
 app.include_router(agents.router)
@@ -169,3 +177,18 @@ app.include_router(messages.router)
 # auth model. Default deployments don't expose ``/v1/internal/*``.
 if settings.EXTERNAL_AUTH_BACKEND:
     app.include_router(internal_users.router)
+
+# ─── PR-5d: packaging-mode flags ──────────────────────────────────
+if not settings.DISABLE_DEVICE_CODE:
+    # Email-magic-link signup flow. Disable when the integrator has
+    # its own user identity system.
+    app.include_router(device_code.router)
+    app.include_router(device_code.page_router)
+
+if not settings.DISABLE_CUE_PRIMITIVE:
+    # Cue / cron / executions / workers surface. Disable when running
+    # as a messaging-only substrate (Dock Connect's case).
+    app.include_router(cues.router)
+    app.include_router(executions.router)
+    app.include_router(workers.router)
+    app.include_router(workers.workers_list_router)
