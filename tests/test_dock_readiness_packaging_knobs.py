@@ -216,15 +216,15 @@ class TestDisableQuotaEnforcement:
         """Default behavior: hitting the cue cap returns
         cue_limit_exceeded. This is the regression-pin for the
         default-on path."""
-        from app.schemas.cue import CueCreate, ScheduleConfig
+        from app.schemas.cue import CallbackCreate, CueCreate, ScheduleCreate
         from app.services.cue_service import create_cue
 
         with _patch_settings(DISABLE_QUOTA_ENFORCEMENT=False):
             data = CueCreate(
                 name="should-fail-at-cap",
-                schedule=ScheduleConfig(type="recurring", cron="0 0 * * *", timezone="UTC"),
+                schedule=ScheduleCreate(type="recurring", cron="0 0 * * *", timezone="UTC"),
                 transport="webhook",
-                callback={"url": "https://example.com/x", "method": "POST"},
+                callback=CallbackCreate(url="https://example.com/x", method="POST"),
             )
             # Build a minimal AuthenticatedUser shape from the User row.
             from app.auth import AuthenticatedUser
@@ -235,7 +235,6 @@ class TestDisableQuotaEnforcement:
                 active_cue_limit=quota_user.active_cue_limit,
                 monthly_execution_limit=quota_user.monthly_execution_limit,
                 rate_limit_per_minute=quota_user.rate_limit_per_minute,
-                api_key_id=None,
             )
             result = await create_cue(db_session, auth_user, data)
             assert "error" in result
@@ -247,15 +246,15 @@ class TestDisableQuotaEnforcement:
     ):
         """With DISABLE_QUOTA_ENFORCEMENT=True, the same call goes
         through despite the user being at their cap."""
-        from app.schemas.cue import CueCreate, ScheduleConfig
+        from app.schemas.cue import CallbackCreate, CueCreate, ScheduleCreate
         from app.services.cue_service import create_cue
 
         with _patch_settings(DISABLE_QUOTA_ENFORCEMENT=True):
             data = CueCreate(
                 name="should-pass-when-quotas-disabled",
-                schedule=ScheduleConfig(type="recurring", cron="0 0 * * *", timezone="UTC"),
+                schedule=ScheduleCreate(type="recurring", cron="0 0 * * *", timezone="UTC"),
                 transport="webhook",
-                callback={"url": "https://example.com/x", "method": "POST"},
+                callback=CallbackCreate(url="https://example.com/x", method="POST"),
             )
             from app.auth import AuthenticatedUser
             auth_user = AuthenticatedUser(
@@ -265,7 +264,6 @@ class TestDisableQuotaEnforcement:
                 active_cue_limit=quota_user.active_cue_limit,
                 monthly_execution_limit=quota_user.monthly_execution_limit,
                 rate_limit_per_minute=quota_user.rate_limit_per_minute,
-                api_key_id=None,
             )
             result = await create_cue(db_session, auth_user, data)
             assert "error" not in result, f"flag should bypass cap, got: {result}"
