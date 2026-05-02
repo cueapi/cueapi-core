@@ -54,6 +54,7 @@ from app.auth import AuthenticatedUser
 from app.models import Agent, DispatchOutbox, Message
 from app.redis import get_redis
 from app.services.agent_service import resolve_address
+from app.services.authorization_backend import get_authorization_backend
 from app.services.message_usage_service import (
     check_message_quota,
     check_per_minute_rate_limit,
@@ -185,20 +186,41 @@ async def create_message(
     if reply_to_agent is not None:
         reply_to_agent_obj = await resolve_address(db, reply_to_agent)
 
-    # 4. Same-tenant check (§3.4). Stringify both to dodge UUID-vs-str.
+    # 4. Authorization check — pluggable per PR-5b. Default backend
+    # enforces spec §3.4 same-tenant rule; integrators can override
+    # via AUTHORIZATION_BACKEND or AUTHZ_HOOK_URL env vars to
+    # implement cross-user rules within their own permission model.
     user_id_str = str(user.id)
-    if str(to_agent.user_id) != user_id_str:
+    authz_backend = get_authorization_backend()
+    primary_allowed = await authz_backend.authorize_message(
+        sender_user_id=user_id_str,
+        recipient_user_id=str(to_agent.user_id),
+        sender_agent_id=from_agent.id,
+        recipient_agent_id=to_agent.id,
+        message_kind="message",
+        idempotency_key=idempotency_key,
+    )
+    if not primary_allowed:
         raise _http_error(
             403,
             "cross_tenant_messaging_forbidden",
-            "v1 messaging is restricted to same-tenant agents",
+            "Authorization backend denied this message",
         )
-    if reply_to_agent_obj is not None and str(reply_to_agent_obj.user_id) != user_id_str:
-        raise _http_error(
-            403,
-            "cross_tenant_messaging_forbidden",
-            "v1 messaging is restricted to same-tenant agents",
+    if reply_to_agent_obj is not None:
+        reply_allowed = await authz_backend.authorize_message(
+            sender_user_id=user_id_str,
+            recipient_user_id=str(reply_to_agent_obj.user_id),
+            sender_agent_id=from_agent.id,
+            recipient_agent_id=reply_to_agent_obj.id,
+            message_kind="reply_chain",
+            idempotency_key=idempotency_key,
         )
+        if not reply_allowed:
+            raise _http_error(
+                403,
+                "cross_tenant_messaging_forbidden",
+                "Authorization backend denied the reply_to_agent in the chain",
+            )
 
     # 4.5. Quota + rate-limit enforcement (§7). All checks happen
     # BEFORE the idempotency check — a dedup-hit on a key inside a
