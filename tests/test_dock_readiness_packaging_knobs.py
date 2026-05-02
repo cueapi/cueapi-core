@@ -229,7 +229,7 @@ class TestDisableQuotaEnforcement:
             # Build a minimal AuthenticatedUser shape from the User row.
             from app.auth import AuthenticatedUser
             auth_user = AuthenticatedUser(
-                id=quota_user.id,
+                id=str(quota_user.id),
                 email=quota_user.email,
                 plan=quota_user.plan,
                 active_cue_limit=quota_user.active_cue_limit,
@@ -258,7 +258,7 @@ class TestDisableQuotaEnforcement:
             )
             from app.auth import AuthenticatedUser
             auth_user = AuthenticatedUser(
-                id=quota_user.id,
+                id=str(quota_user.id),
                 email=quota_user.email,
                 plan=quota_user.plan,
                 active_cue_limit=quota_user.active_cue_limit,
