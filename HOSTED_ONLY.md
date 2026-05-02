@@ -17,6 +17,7 @@ The line is drawn at: **scheduling + delivery + outcome reporting is OSS. Everyt
 | Deploy hook (Railway staging) | cueapi.ai CI/CD infrastructure. |
 | Dashboard (React UI) | Hosted-only. cueapi-core is API-first — build your own UI, or use the hosted dashboard at cueapi.ai. |
 | Email alert delivery (SendGrid) | Paid-API integration. OSS ships **webhook-based** alert delivery instead: configure an `alert_webhook_url` on your user and forward alerts to your own Slack/Discord/ntfy/SMTP-relay pipeline. See README's "Alerts" section. |
+| Multi-key scoping (`api_keys` table + scoped FKs) | Per-user multiple API keys with scopes. cueapi-core uses single-key auth (`users.api_key_hash`). The messaging primitive ported here drops `agents.api_key_id` and `messages.from_api_key_id` columns — they were audit-only fields in the private monorepo, not used for any business logic. If multi-key scoping is ever ported, follow-up migrations can ADD COLUMN those FKs. |
 
 ## What's in cueapi-core
 
@@ -29,6 +30,7 @@ Everything needed to run a production scheduler with outcome tracking:
 - Alert firing (via webhook delivery; add your own `alert_webhook_url`)
 - API keys, device-code auth, session refresh, rate limiting
 - At-least-once delivery via transactional outbox
+- **Messaging primitive** (Phase 2.11 / 12.1.5): Identity-addressed agents, persistent messages with delivery state machine, idempotency-keyed sends, reply threading, push delivery via webhook with retry/backoff/stale-recovery, poll-fetch inbox with atomic queued→delivered transition, per-user concurrent delivery cap, per-month message quotas. See README "Messaging" section.
 
 Full feature list: see [README.md](README.md).
 

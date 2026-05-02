@@ -10,6 +10,7 @@ from typing import Optional
 
 import pytz
 import redis.asyncio as aioredis
+import sqlalchemy as sa
 from arq import create_pool
 from arq.connections import RedisSettings
 from croniter import croniter
@@ -18,10 +19,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
+from app.models.agent import Agent
 from app.models.cue import Cue
 from app.models.device_code import DeviceCode
 from app.models.dispatch_outbox import DispatchOutbox
 from app.models.execution import Execution
+from app.models.message import Message
 from app.models.user import User
 from app.models.worker import Worker
 
@@ -325,7 +328,14 @@ async def poll_retries(db_engine, batch_size: int = 500) -> int:
 
 
 async def dispatch_outbox(db_engine, arq_redis, batch_size: int = 500) -> int:
-    """Move undispatched outbox rows to the arq Redis queue."""
+    """Move undispatched outbox rows to the arq Redis queue.
+
+    Slice 3b (Phase 12.1.5): also filters by ``scheduled_at``. NULL
+    preserves existing behavior (immediate dispatch) for cue-task rows
+    + initial deliver_message rows. Non-NULL is set on retry_message
+    rows to defer dispatch until the backoff interval has elapsed.
+    """
+    import sqlalchemy as sa  # noqa: F401  (used in or_)
     now = datetime.now(timezone.utc)
     count = 0
 
@@ -338,7 +348,13 @@ async def dispatch_outbox(db_engine, arq_redis, batch_size: int = 500) -> int:
                 DispatchOutbox.task_type,
                 DispatchOutbox.payload,
             )
-            .where(DispatchOutbox.dispatched == False)  # noqa: E712
+            .where(
+                DispatchOutbox.dispatched == False,  # noqa: E712
+                sa.or_(
+                    DispatchOutbox.scheduled_at.is_(None),
+                    DispatchOutbox.scheduled_at <= now,
+                ),
+            )
             .order_by(DispatchOutbox.created_at)
             .limit(batch_size)
             .with_for_update(skip_locked=True)
@@ -347,7 +363,23 @@ async def dispatch_outbox(db_engine, arq_redis, batch_size: int = 500) -> int:
 
         for row in rows:
             try:
-                task_name = "deliver_webhook_task" if row.task_type == "deliver" else "retry_webhook_task"
+                # Cue-task routing (existing) + message-task routing
+                # added in Phase 12.1.5 for the messaging primitive
+                # push-delivery path.
+                if row.task_type == "deliver":
+                    task_name = "deliver_webhook_task"
+                elif row.task_type == "retry":
+                    task_name = "retry_webhook_task"
+                elif row.task_type == "deliver_message":
+                    task_name = "deliver_message_task"
+                elif row.task_type == "retry_message":
+                    task_name = "retry_message_task"
+                else:
+                    logger.error(
+                        "dispatch_outbox: unknown task_type %r on row %s; skipping",
+                        row.task_type, row.id,
+                    )
+                    continue
                 await arq_redis.enqueue_job(
                     task_name,
                     row.payload,
@@ -453,6 +485,128 @@ async def recover_stale_executions(db_engine, stale_seconds: int = 300) -> int:
     # Run on_failure escalation after transaction is committed
     for cue_id, exec_id, error_msg in escalations:
         await _run_on_failure_escalation(db_engine, cue_id, exec_id, error_msg)
+
+    return count
+
+
+async def recover_stale_message_deliveries(db_engine, stale_seconds: int = 300) -> int:
+    """Find messages stuck in 'delivering' beyond the stale threshold.
+
+    Handles worker-crash-mid-delivery: a worker dies between claiming
+    and POSTing → message sits in ``delivering`` forever (poll-fetcher
+    won't re-claim a non-queued row; retry path only fires on a
+    classified failure, not on no-response). This loop is the safety
+    net.
+
+    Recovery semantics (Phase 12.1.5 Slice 3b):
+
+    * Compute attempt count = number of dispatched outbox rows for
+      this message_id with task_type IN ('deliver_message',
+      'retry_message'). The crashed attempt counts toward the budget.
+    * If attempts < ``MESSAGE_RETRY_MAX_ATTEMPTS + 1`` (i.e., budget
+      remains), insert a fresh ``retry_message`` outbox row at
+      ``scheduled_at = now()`` (immediate dispatch — we don't
+      backoff after a worker crash, the recipient never saw the
+      attempt) and transition the message to ``retry_ready``.
+    * If attempts ≥ budget, mark the message ``failed`` (the crashed
+      attempt was the final one; no more retries warranted).
+
+    Returns the count of recovered messages.
+    """
+    from worker.tasks import MESSAGE_RETRY_MAX_ATTEMPTS
+
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(seconds=stale_seconds)
+    count = 0
+    now = datetime.now(timezone.utc)
+    max_total_attempts = MESSAGE_RETRY_MAX_ATTEMPTS + 1  # initial + retries
+
+    async with db_engine.begin() as conn:
+        result = await conn.execute(
+            select(Message.id, Message.to_agent_id)
+            .where(
+                Message.delivery_state == "delivering",
+                Message.delivering_started_at.isnot(None),
+                Message.delivering_started_at < stale_cutoff,
+            )
+            .limit(100)
+            .with_for_update(skip_locked=True)
+        )
+        stale = result.fetchall()
+
+        for row in stale:
+            msg_id = row.id
+            to_agent_id = row.to_agent_id
+
+            # Count prior dispatched outbox rows for this message to
+            # derive the attempt count. JSONB ``->>`` extracts the
+            # string form of payload['message_id'].
+            attempt_count_q = select(sa.func.count()).select_from(DispatchOutbox).where(
+                DispatchOutbox.task_type.in_(["deliver_message", "retry_message"]),
+                DispatchOutbox.payload["message_id"].astext == msg_id,
+                DispatchOutbox.dispatched == True,  # noqa: E712
+            )
+            prior_attempts = (await conn.execute(attempt_count_q)).scalar() or 0
+
+            agent_q = select(Agent.webhook_url).where(Agent.id == to_agent_id)
+            agent_row = (await conn.execute(agent_q)).fetchone()
+            webhook_url = agent_row.webhook_url if agent_row else None
+
+            if prior_attempts < max_total_attempts:
+                # Budget remains — re-enqueue an immediate retry. No
+                # backoff: the recipient never saw the attempt because
+                # the worker crashed mid-call.
+                next_attempt = prior_attempts + 1
+                await conn.execute(
+                    DispatchOutbox.__table__.insert().values(
+                        execution_id=None,
+                        cue_id=None,
+                        task_type="retry_message",
+                        payload={
+                            "message_id": msg_id,
+                            "to_agent_id": to_agent_id,
+                            "webhook_url": webhook_url,
+                            "attempt": next_attempt,
+                        },
+                        scheduled_at=now,
+                        dispatched=False,
+                    )
+                )
+                await conn.execute(
+                    update(Message)
+                    .where(Message.id == msg_id)
+                    .values(delivery_state="retry_ready", delivering_started_at=None)
+                )
+                logger.warning(
+                    "stale message delivery recovered to retry_ready",
+                    extra={
+                        "event_type": "msg_delivery_stale_recovered",
+                        "message_id": msg_id,
+                        "to_agent_id": to_agent_id,
+                        "prior_attempts": prior_attempts,
+                        "next_attempt_number": next_attempt,
+                    },
+                )
+            else:
+                # Budget exhausted — the crashed attempt was the last.
+                await conn.execute(
+                    update(Message)
+                    .where(Message.id == msg_id)
+                    .values(
+                        delivery_state="failed",
+                        failed_at=now,
+                        delivering_started_at=None,
+                    )
+                )
+                logger.warning(
+                    "stale message delivery hit retry budget; marked failed",
+                    extra={
+                        "event_type": "msg_delivery_stale_failed",
+                        "message_id": msg_id,
+                        "to_agent_id": to_agent_id,
+                        "prior_attempts": prior_attempts,
+                    },
+                )
+            count += 1
 
     return count
 
@@ -813,6 +967,12 @@ async def run_poller():
                 cue_count = await poll_due_cues(db_engine, settings.POLLER_BATCH_SIZE)
                 retry_count = await poll_retries(db_engine, settings.POLLER_BATCH_SIZE)
                 stale_count = await recover_stale_executions(db_engine, settings.EXECUTION_STALE_AFTER_SECONDS)
+                # Messaging primitive (Phase 12.1.5): same shape as cue
+                # stale-recovery — finds messages stuck in 'delivering'
+                # past the threshold and bumps them back to retry_ready.
+                msg_stale_count = await recover_stale_message_deliveries(
+                    db_engine, settings.MESSAGE_DELIVERY_STALE_AFTER_SECONDS
+                )
                 worker_stale_count = await recover_stale_worker_claims(
                     db_engine,
                     heartbeat_timeout=settings.WORKER_HEARTBEAT_TIMEOUT_SECONDS,

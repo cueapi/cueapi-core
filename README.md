@@ -294,6 +294,76 @@ curl http://localhost:8000/v1/alerts \
 
 > **Delivery path is HTTP only.** cueapi-core ships alert persistence + webhook delivery and nothing else. For email / SMS / Slack, point your `alert_webhook_url` at a forwarder you control, or use hosted cueapi.ai which includes managed email delivery via SendGrid. See [HOSTED_ONLY.md](HOSTED_ONLY.md) for the full open-core policy.
 
+## Messaging
+
+cueapi-core also ships a persistent identity-addressed messaging primitive on top of the same multi-tenant model. Each user can register multiple "agents" — addressable identities — and send messages between them with delivery guarantees.
+
+```bash
+# Register a sender and a recipient agent
+curl -X POST $CUEAPI_BASE/v1/agents \
+  -H "Authorization: Bearer $CUEAPI_API_KEY" \
+  -d '{"slug": "sender", "display_name": "My Sender"}'
+
+curl -X POST $CUEAPI_BASE/v1/agents \
+  -H "Authorization: Bearer $CUEAPI_API_KEY" \
+  -d '{"slug": "recipient", "display_name": "My Recipient",
+       "webhook_url": "https://example.com/inbox"}'
+
+# Send a message
+curl -X POST $CUEAPI_BASE/v1/messages \
+  -H "Authorization: Bearer $CUEAPI_API_KEY" \
+  -H "X-Cueapi-From-Agent: agt_<sender_id>" \
+  -H "Idempotency-Key: my-unique-send-1" \
+  -d '{"to": "agt_<recipient_id>", "subject": "hi", "body": "test"}'
+
+# Recipient polls inbox (queued → delivered atomic)
+curl $CUEAPI_BASE/v1/agents/agt_<recipient_id>/inbox \
+  -H "Authorization: Bearer $CUEAPI_API_KEY"
+```
+
+**Delivery state machine:** `queued → delivering → delivered → read → acked`, with `retry_ready` / `failed` / `expired` branches.
+
+**Two delivery paths, both available simultaneously:**
+
+1. **Push** — when the recipient agent has `webhook_url` set, every send enqueues an HMAC-SHA256-signed POST to that URL via the existing transactional outbox. Retry budget: 3 retries after initial = 4 total attempts. Backoff: `[1, 5, 15]` minutes. `Retry-After` honored on 429/503. Worker-crash-mid-delivery handled by stale-recovery poll loop.
+2. **Poll** — recipients with no `webhook_url` (or as a fallback) call `GET /v1/agents/{id}/inbox`. Server atomically transitions matched messages from `queued → delivered` in the same query that returns them.
+
+**Spec features:**
+
+- **Idempotency-Key dedup** — same key + same body within 24h returns the existing message. Same key + different body returns 409 with code `idempotency_key_conflict`.
+- **Reply threading** — set `reply_to: msg_xxx` on send to inherit the parent's `thread_id`. Server manages thread state.
+- **Slug-form addressing** — both `agt_xxx` opaque IDs and `agent_slug@user_slug` resolve to the same agent.
+- **Per-user concurrent delivery cap** (`MAX_CONCURRENT_DELIVERIES_PER_USER`, default 50) shared with cue webhook deliveries.
+- **Message TTL** — 30-day default `expires_at`, transitioned to `expired` by the cleanup task.
+- **Per-month message quota** — `users.monthly_message_limit`, default 300.
+
+**Endpoints:**
+
+```
+POST   /v1/agents
+GET    /v1/agents
+GET    /v1/agents/{ref}            # ref = agt_xxx | agent@user
+PATCH  /v1/agents/{ref}
+DELETE /v1/agents/{ref}
+GET    /v1/agents/{ref}/webhook-secret
+POST   /v1/agents/{ref}/webhook-secret/regenerate
+GET    /v1/agents/{ref}/inbox      # poll-fetch, queued → delivered
+GET    /v1/agents/{ref}/sent       # sender view, no state mutation
+
+POST   /v1/messages                # Idempotency-Key header optional
+GET    /v1/messages/{id}
+POST   /v1/messages/{id}/read
+POST   /v1/messages/{id}/ack
+```
+
+**Cleanup tasks** (in `worker/message_cleanup.py`, dry-run by default — pass `dry_run=False` to act):
+
+- `expire_old_messages` — TTL transition to `expired`
+- `cleanup_expired_messages` — hard-delete 7d after terminal state
+- `free_old_idempotency_keys` — NULL keys after 24h to free the partial unique index
+
+Wire these into your scheduler of choice (cron, arq cron job, systemd timer).
+
 ## What CueAPI is not
 
 - Not a workflow orchestrator

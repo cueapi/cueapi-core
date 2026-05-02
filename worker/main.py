@@ -6,7 +6,12 @@ from arq.connections import RedisSettings
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
-from worker.tasks import deliver_webhook_task, retry_webhook_task
+from worker.tasks import (
+    deliver_message_task,
+    deliver_webhook_task,
+    retry_message_task,
+    retry_webhook_task,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +42,8 @@ class WorkerSettings:
     functions = [
         deliver_webhook_task,
         retry_webhook_task,
+        deliver_message_task,
+        retry_message_task,
     ]
     on_startup = startup
     on_shutdown = shutdown

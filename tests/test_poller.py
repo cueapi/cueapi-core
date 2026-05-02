@@ -20,11 +20,13 @@ async def _create_test_user(db_session):
     from app.utils.ids import generate_api_key, generate_webhook_secret, hash_api_key, get_api_key_prefix
 
     api_key = generate_api_key()
+    suffix = uuid.uuid4().hex[:8]
     user = User(
-        email=f"poller-{uuid.uuid4().hex[:8]}@test.com",
+        email=f"poller-{suffix}@test.com",
         api_key_hash=hash_api_key(api_key),
         api_key_prefix=get_api_key_prefix(api_key),
         webhook_secret=generate_webhook_secret(),
+        slug=f"poller-{suffix}",
     )
     db_session.add(user)
     await db_session.commit()

@@ -14,11 +14,13 @@ from app.models.user import User
 
 
 async def _make_user(session: AsyncSession):
+    suffix = uuid.uuid4().hex[:8]
     u = User(
-        email=f"a-{uuid.uuid4().hex[:8]}@test.com",
+        email=f"a-{suffix}@test.com",
         api_key_hash=uuid.uuid4().hex,
         api_key_prefix="cue_sk_test",
         webhook_secret="x" * 64,
+        slug=f"a-{suffix}",
     )
     session.add(u)
     await session.commit()

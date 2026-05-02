@@ -49,11 +49,17 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
     api_key = generate_api_key()
 
+    # Derive a unique per-tenant slug for slug-form addressing
+    # (`agent@user_slug`) — see migration 020 + app/utils/slug.py.
+    from app.utils.slug import derive_user_slug
+    user_slug = await derive_user_slug(db, body.email)
+
     user = User(
         email=body.email,
         api_key_hash=hash_api_key(api_key),
         api_key_prefix=get_api_key_prefix(api_key),
         webhook_secret=generate_webhook_secret(),
+        slug=user_slug,
     )
     db.add(user)
     await db.commit()
@@ -150,10 +156,11 @@ async def get_me(
     has_webhook_secret = bool(ws_row and ws_row.webhook_secret)
 
     user_result = await db.execute(
-        select(User.api_key_prefix).where(User.id == user.id)
+        select(User.api_key_prefix, User.slug).where(User.id == user.id)
     )
     user_row = user_result.fetchone()
     api_key_prefix = user_row.api_key_prefix if user_row else ""
+    user_slug = user_row.slug if user_row else None
 
     return {
         "email": user.email,
@@ -165,6 +172,7 @@ async def get_me(
         "rate_limit_per_minute": user.rate_limit_per_minute,
         "has_webhook_secret": has_webhook_secret,
         "api_key_prefix": api_key_prefix,
+        "slug": user_slug,
     }
 
 
