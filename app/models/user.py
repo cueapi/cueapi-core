@@ -27,5 +27,15 @@ class User(Base):
     # lazily on first ``GET /v1/auth/alert-webhook-secret`` and rotatable
     # via ``POST /v1/auth/alert-webhook-secret/regenerate``.
     alert_webhook_secret = Column(String(64), nullable=True)
+    # Per-tenant slug for slug-form addressing (`agent@user`) in the
+    # messaging primitive. Auto-derived on user create from
+    # email-local-part + collision suffix; lock-after-set in v1
+    # (§13 D3 of MESSAGING_SPEC). Backfilled by migration 020.
+    slug = Column(String(64), nullable=False, unique=True)
+    # Per-plan monthly message quota, separate from
+    # ``monthly_execution_limit`` (§13 D1 of MESSAGING_SPEC).
+    # Default 300 matches free-tier execution-limit shape; ops can
+    # raise via DB UPDATE if a self-host needs higher caps. Migration 021.
+    monthly_message_limit = Column(Integer, nullable=False, default=300, server_default="300")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

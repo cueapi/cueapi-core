@@ -23,3 +23,17 @@ def generate_cue_id() -> str:
     chars = string.ascii_lowercase + string.digits
     suffix = "".join(secrets.choice(chars) for _ in range(12))
     return f"cue_{suffix}"
+
+
+def generate_agent_id() -> str:
+    """Format ``agt_<12 alphanumeric>``. See MESSAGING_SPEC §2.1."""
+    chars = string.ascii_lowercase + string.digits
+    suffix = "".join(secrets.choice(chars) for _ in range(12))
+    return f"agt_{suffix}"
+
+
+def generate_message_id() -> str:
+    """Format ``msg_<12 alphanumeric>``. See MESSAGING_SPEC §3.1."""
+    chars = string.ascii_lowercase + string.digits
+    suffix = "".join(secrets.choice(chars) for _ in range(12))
+    return f"msg_{suffix}"
