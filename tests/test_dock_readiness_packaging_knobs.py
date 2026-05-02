@@ -267,4 +267,8 @@ class TestDisableQuotaEnforcement:
             )
             result = await create_cue(db_session, auth_user, data)
             assert "error" not in result, f"flag should bypass cap, got: {result}"
-            assert result.get("id", "").startswith("cue_")
+            # Response shape from create_cue is {"cue": CueResponse(...), ...};
+            # id lives on the nested CueResponse, not at the top level.
+            cue_resp = result.get("cue")
+            assert cue_resp is not None, f"expected 'cue' in response, got keys: {list(result.keys())}"
+            assert cue_resp.id.startswith("cue_")
