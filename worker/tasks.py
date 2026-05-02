@@ -12,11 +12,32 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 import redis.asyncio as aioredis
 
 from app.config import settings
+from app.models.agent import Agent
 from app.models.cue import Cue
+from app.models.dispatch_outbox import DispatchOutbox
 from app.models.execution import Execution
+from app.models.message import Message
 from app.models.user import User
+from app.services.message_classification import (
+    EVT_4XX_TERMINAL,
+    EVT_RETRIES_EXHAUSTED,
+    EVT_RETRY_SCHEDULED,
+    EVT_429_RETRY_AFTER,
+)
+from app.services.message_delivery import (
+    DeliveryAttemptResult,
+    deliver_message_to_webhook,
+)
 from app.services.usage_service import check_execution_limit, increment_usage
 from app.services.webhook import deliver_webhook
+from app.utils.retry_after import parse_retry_after
+
+# ── Messaging primitive push delivery constants (Phase 12.1.5) ─────
+#
+# ``MESSAGE_RETRY_MAX_ATTEMPTS`` = 3 retries AFTER the initial delivery
+# = 4 total attempts. Matches cue convention.
+MESSAGE_RETRY_MAX_ATTEMPTS = 3
+MESSAGE_RETRY_BACKOFF_MINUTES = [1, 5, 15]
 
 logger = logging.getLogger(__name__)
 
@@ -560,5 +581,522 @@ async def retry_webhook_task(ctx: dict, payload: dict):
                 "will_retry": attempt < max_attempts,
                 "latency_ms": int(latency * 1000),
             })
+    finally:
+        await session.close()
+# ── Messaging primitive — push delivery (Phase 12.1.5) ─────────────
+
+
+async def _check_concurrent_cap_or_recycle(
+    session: AsyncSession,
+    redis_client: Optional[aioredis.Redis],
+    *,
+    user_id: str,
+    task_type: str,
+    payload: dict,
+) -> Optional[str]:
+    """Per-user concurrent delivery cap (spec §5.6).
+
+    Shares the ``concurrent:{user_id}`` Redis counter with cue webhook
+    deliveries — same per-user TOTAL cap covers both. INCRs the
+    counter; if over ``settings.MAX_CONCURRENT_DELIVERIES_PER_USER``
+    decrements back, inserts a fresh outbox row at
+    ``scheduled_at = now + 30s`` to recycle through the dispatcher,
+    and returns ``None`` to signal "skip this cycle."
+
+    Returns the concurrent-key (str) when under cap and the caller
+    should proceed; ``None`` when over cap (caller should return).
+
+    Caller MUST call ``_release_concurrent`` after the delivery work
+    completes, even on exception, to keep the counter accurate.
+
+    Differs from cue-side pattern: for cues, the dispatch_outbox row
+    isn't yet marked dispatched at this point, so the cue path
+    returns and the poller re-dispatches the same row next cycle.
+    For messages, the outbox row was already marked dispatched by
+    the dispatcher before we got here, so the cue strategy would
+    leave the message permanently queued. Hence the recycle-row
+    pattern.
+    """
+    if not user_id or not redis_client:
+        return None  # No cap enforcement when context is incomplete; proceed.
+    concurrent_key = f"concurrent:{user_id}"
+    try:
+        current = await redis_client.incr(concurrent_key)
+        # 10-minute safety TTL — if a worker dies after INCR without
+        # DECR, the counter resets eventually rather than blocking
+        # the user forever.
+        await redis_client.expire(concurrent_key, 600)
+        if current > settings.MAX_CONCURRENT_DELIVERIES_PER_USER:
+            await redis_client.decr(concurrent_key)
+            # Recycle: insert a fresh outbox row to dispatch in 30s.
+            # Reuses the existing scheduled_at filter from the
+            # Slice-3b dispatcher — no new poll loop needed.
+            now = datetime.now(timezone.utc)
+            recycle_at = now + timedelta(seconds=30)
+            session.add(
+                DispatchOutbox(
+                    execution_id=None,
+                    cue_id=None,
+                    task_type=task_type,
+                    payload=payload,
+                    scheduled_at=recycle_at,
+                )
+            )
+            await session.commit()
+            logger.warning(
+                "per-user concurrent delivery cap reached; recycling message dispatch",
+                extra={
+                    "event_type": "msg_delivery_concurrent_cap_recycled",
+                    "user_id": user_id,
+                    "concurrent": current,
+                    "cap": settings.MAX_CONCURRENT_DELIVERIES_PER_USER,
+                    "task_type": task_type,
+                    "message_id": payload.get("message_id"),
+                    "next_attempt_at": recycle_at.isoformat(),
+                },
+            )
+            return None
+        return concurrent_key
+    except Exception as e:
+        # Redis blip — let the request through; cap is best-effort.
+        logger.warning(
+            "concurrent-cap check failed; proceeding without enforcement",
+            extra={"user_id": user_id, "error": str(e)},
+        )
+        return concurrent_key
+
+
+async def _release_concurrent(
+    redis_client: Optional[aioredis.Redis],
+    concurrent_key: Optional[str],
+):
+    """Decrement the concurrent-delivery counter. Best-effort —
+    swallows Redis errors. Caller invokes in a ``finally`` block.
+    """
+    if not redis_client or not concurrent_key:
+        return
+    try:
+        await redis_client.decr(concurrent_key)
+    except Exception:
+        # Counter is best-effort. Don't let a Redis blip break the
+        # delivery state machine.
+        pass
+
+
+async def _load_message_context(
+    session: AsyncSession,
+    *,
+    message_id: str,
+    to_agent_id: str,
+):
+    """Look up message + agents + user live (not from outbox payload).
+
+    Returns (msg, to_agent, from_agent, user) or None if any lookup
+    fails OR if to_agent.webhook_url is now NULL (mid-flight rotation
+    means the worker no-ops cleanly per §5.1 / PM design 2026-04-30).
+    """
+    msg = await session.get(Message, message_id)
+    if msg is None:
+        logger.warning(
+            "deliver_message_task: message not found",
+            extra={"event_type": "msg_deliver_not_found", "message_id": message_id},
+        )
+        return None
+
+    to_agent = await session.get(Agent, to_agent_id)
+    if to_agent is None:
+        logger.warning(
+            "deliver_message_task: to_agent not found (deleted?); leaving message in queued",
+            extra={
+                "event_type": "msg_deliver_to_agent_missing",
+                "message_id": message_id,
+                "to_agent_id": to_agent_id,
+            },
+        )
+        return None
+
+    if to_agent.webhook_url is None:
+        # webhook_url cleared between create and delivery — recipient
+        # explicitly opted out. No-op; leave message in queued
+        # for poll-fetchers (recipient agency wins).
+        logger.info(
+            "deliver_message_task: webhook_url cleared mid-flight; leaving message in queued for poll",
+            extra={
+                "event_type": "msg_deliver_url_cleared",
+                "message_id": message_id,
+                "to_agent_id": to_agent_id,
+            },
+        )
+        return None
+
+    from_agent = await session.get(Agent, msg.from_agent_id)
+    if from_agent is None:
+        logger.warning(
+            "deliver_message_task: from_agent not found",
+            extra={
+                "event_type": "msg_deliver_from_agent_missing",
+                "message_id": message_id,
+                "from_agent_id": msg.from_agent_id,
+            },
+        )
+        return None
+
+    user = await session.get(User, msg.user_id)
+    if user is None:
+        logger.warning(
+            "deliver_message_task: user not found",
+            extra={
+                "event_type": "msg_deliver_user_missing",
+                "message_id": message_id,
+                "user_id": str(msg.user_id),
+            },
+        )
+        return None
+
+    return msg, to_agent, from_agent, user
+
+
+async def _claim_message(
+    session: AsyncSession,
+    *,
+    message_id: str,
+    expected_state: str,
+) -> bool:
+    """Conditional UPDATE: ``expected_state → delivering``.
+
+    Sets ``delivering_started_at = now()`` on the claim so the stale-
+    recovery poll loop can detect worker-crash-mid-delivery (§5.4
+    stale-recovery semantics; Slice 3b).
+
+    Returns ``True`` if the claim succeeded; ``False`` if another
+    worker (or the poll-fetcher in the queued case) won the race.
+    """
+    now = datetime.now(timezone.utc)
+    claim = await session.execute(
+        update(Message)
+        .where(Message.id == message_id, Message.delivery_state == expected_state)
+        .values(delivery_state="delivering", delivering_started_at=now)
+        .returning(Message.id)
+    )
+    if claim.first() is None:
+        logger.debug(
+            "claim failed (raced; already past expected state)",
+            extra={
+                "event_type": "msg_deliver_claim_failed",
+                "message_id": message_id,
+                "expected_state": expected_state,
+            },
+        )
+        await session.commit()
+        return False
+    await session.commit()
+    return True
+
+
+async def _route_attempt_outcome(
+    session: AsyncSession,
+    *,
+    msg: Message,
+    to_agent: Agent,
+    attempt: int,
+    result: DeliveryAttemptResult,
+    latency_ms: int,
+):
+    """After a delivery attempt completes, classify + route:
+
+    * Success → ``delivered`` (terminal). Clear ``delivering_started_at``.
+    * Retryable + budget remaining → insert ``retry_message`` outbox
+      row with scheduled_at = now + backoff (honoring Retry-After).
+      Transition message to ``retry_ready``.
+    * Retryable + budget exhausted → ``failed`` (retries exhausted).
+    * Terminal → ``failed`` (4xx-terminal or unexpected error).
+
+    All log events use structured ``extra={...}`` fields per PM's
+    audit-backfill ask: ``message_id``, ``attempt_number``,
+    ``status_code``, ``retry_after_seconds``, ``next_attempt_at``,
+    ``error_type``, ``latency_ms``. A future ``delivery_attempts``
+    audit table can backfill from log archive.
+    """
+    classification = result.classification
+    now = datetime.now(timezone.utc)
+    structured = {
+        "event_type": classification.log_event_type,
+        "message_id": msg.id,
+        "to_agent_id": to_agent.id,
+        "attempt_number": attempt,
+        "status_code": classification.http_status,
+        "error_type": classification.error_type,
+        "latency_ms": latency_ms,
+    }
+
+    if classification.is_success:
+        await session.execute(
+            update(Message)
+            .where(Message.id == msg.id)
+            .values(
+                delivery_state="delivered",
+                delivered_at=now,
+                delivering_started_at=None,
+            )
+        )
+        await session.commit()
+        logger.info("message delivered", extra=structured)
+        return
+
+    if classification.is_retryable and attempt < MESSAGE_RETRY_MAX_ATTEMPTS + 1:
+        # Schedule the next attempt. Backoff index = attempt - 1
+        # clamped to len(backoff)-1; e.g. attempt 1 → 1 min; attempt
+        # 2 → 5 min; attempt 3 → 15 min; further attempts (none in
+        # v1.5) reuse the last value.
+        idx = min(attempt - 1, len(MESSAGE_RETRY_BACKOFF_MINUTES) - 1)
+        own_min_seconds = MESSAGE_RETRY_BACKOFF_MINUTES[idx] * 60
+        # Honor 429 / 503 Retry-After if present:
+        # ``max(own_min, retry_after)`` per Max OpenClaw's review.
+        delay_seconds = parse_retry_after(
+            result.retry_after_header,
+            own_min_seconds=own_min_seconds,
+        )
+        scheduled_at = now + timedelta(seconds=delay_seconds)
+        next_attempt = attempt + 1
+
+        # Insert retry_message outbox row deferred to scheduled_at.
+        # Worker re-reads to_agent.webhook_url + secret live on each
+        # attempt (§5.1), so storing webhook_url here is for
+        # discoverability / debugging only — not load-bearing.
+        session.add(
+            DispatchOutbox(
+                execution_id=None,
+                cue_id=None,
+                task_type="retry_message",
+                payload={
+                    "message_id": msg.id,
+                    "to_agent_id": to_agent.id,
+                    "webhook_url": to_agent.webhook_url,
+                    "attempt": next_attempt,
+                },
+                scheduled_at=scheduled_at,
+            )
+        )
+        await session.execute(
+            update(Message)
+            .where(Message.id == msg.id)
+            .values(delivery_state="retry_ready", delivering_started_at=None)
+        )
+        await session.commit()
+
+        retry_event = (
+            EVT_429_RETRY_AFTER
+            if result.retry_after_header is not None
+            else EVT_RETRY_SCHEDULED
+        )
+        logger.info(
+            "message retry scheduled",
+            extra={
+                **structured,
+                "event_type": retry_event,
+                "retry_after_seconds": delay_seconds,
+                "retry_after_header": result.retry_after_header,
+                "next_attempt_number": next_attempt,
+                "next_attempt_at": scheduled_at.isoformat(),
+            },
+        )
+        return
+
+    # Terminal: either non-retryable (4xx-terminal) OR retries exhausted.
+    failure_event = (
+        EVT_RETRIES_EXHAUSTED
+        if classification.is_retryable
+        else classification.log_event_type
+    )
+    await session.execute(
+        update(Message)
+        .where(Message.id == msg.id)
+        .values(
+            delivery_state="failed",
+            failed_at=now,
+            delivering_started_at=None,
+        )
+    )
+    await session.commit()
+    logger.warning(
+        "message delivery failed (terminal)",
+        extra={
+            **structured,
+            "event_type": failure_event,
+            "error_message": classification.error_message,
+            "response_excerpt": (result.response_body or "")[:200],
+        },
+    )
+
+
+async def deliver_message_task(ctx: dict, payload: dict):
+    """arq task: push-deliver a message to ``to_agent.webhook_url``.
+
+    Spec: <https://trydock.ai/mike/cueapi-messaging-primitive-v1-sp>
+    §5 (Push delivery).
+
+    Behavior (Slice 3b — current):
+
+    * Look up message + agents + user LIVE (not from outbox payload)
+      per §5.1 (secret rotation safety).
+    * If ``to_agent.webhook_url`` was cleared between create and
+      delivery → no-op, leave message in ``queued`` for poll-fetchers.
+    * Otherwise claim ``queued → delivering`` atomically and POST.
+    * Classify outcome via ``classify_response`` / ``classify_exception``
+      (granular taxonomy from §5.4 — 401/404/405 distinct terminal,
+      502/503 retryable, TLS handshake / DNS / connection refused
+      distinct).
+    * On success → ``delivered``.
+    * On retryable failure with budget remaining → insert
+      ``retry_message`` outbox row at ``scheduled_at = now + backoff``
+      (honoring 429 / 503 ``Retry-After`` per Max's review:
+      ``max(own_min, retry_after)``). Transition message to
+      ``retry_ready``.
+    * On retryable failure with budget exhausted → ``failed``.
+    * On terminal failure (4xx-terminal) → ``failed`` immediately.
+
+    Stale-recovery for worker-crash-mid-delivery is handled by a
+    separate poll loop in ``worker/poller.py`` that scans messages
+    stuck in ``delivering`` past
+    ``MESSAGE_DELIVERY_STALE_AFTER_SECONDS`` and moves them back to
+    ``retry_ready``.
+    """
+    message_id = payload["message_id"]
+    to_agent_id = payload["to_agent_id"]
+
+    session = await _get_db_session(ctx)
+    redis_client = await _get_redis(ctx)
+    try:
+        ctx_load = await _load_message_context(
+            session, message_id=message_id, to_agent_id=to_agent_id
+        )
+        if ctx_load is None:
+            return
+        msg, to_agent, from_agent, user = ctx_load
+
+        # Per-user concurrent delivery cap (spec §5.6). Check BEFORE
+        # claim so we don't change message state if over cap. The
+        # helper inserts a recycle outbox row + returns None when
+        # capped; otherwise returns the concurrent_key for release.
+        concurrent_key = await _check_concurrent_cap_or_recycle(
+            session,
+            redis_client,
+            user_id=str(user.id),
+            task_type="deliver_message",
+            payload=payload,
+        )
+        if concurrent_key is None and user.id and redis_client:
+            # Capped + recycled. Stop here.
+            return
+
+        try:
+            # Claim: queued → delivering atomically, set delivering_started_at.
+            if not await _claim_message(session, message_id=message_id, expected_state="queued"):
+                return
+            # Re-fetch the message after claim so callers see the new state
+            # in the in-memory object (delivering_started_at populated).
+            await session.refresh(msg)
+
+            attempt = 1
+            t0 = time.monotonic()
+            result = await deliver_message_to_webhook(
+                msg=msg,
+                from_agent=from_agent,
+                to_agent=to_agent,
+                # v1 is same-tenant only — sender and recipient share the
+                # same user, so both slug-form addresses anchor on
+                # ``user.slug``.
+                sender_user_slug=user.slug,
+                recipient_user_slug=user.slug,
+                attempt=attempt,
+            )
+            latency_ms = int((time.monotonic() - t0) * 1000)
+
+            await _route_attempt_outcome(
+                session,
+                msg=msg,
+                to_agent=to_agent,
+                attempt=attempt,
+                result=result,
+                latency_ms=latency_ms,
+            )
+        finally:
+            await _release_concurrent(redis_client, concurrent_key)
+    finally:
+        await session.close()
+
+
+async def retry_message_task(ctx: dict, payload: dict):
+    """arq task: retry a message delivery after a previous attempt
+    failed with a retryable error.
+
+    Same shape as ``deliver_message_task`` but:
+
+    * Claims from ``retry_ready → delivering`` (instead of queued).
+    * Reads ``attempt`` from ``payload`` (set by the prior attempt
+      when it inserted this retry row); attempt count carries through
+      so logs / X-CueAPI-Attempt header reflect the actual try number.
+
+    Recurses by inserting another ``retry_message`` outbox row if
+    the budget is not exhausted; terminates with ``failed`` otherwise.
+
+    Spec: <https://trydock.ai/mike/cueapi-messaging-primitive-v1-sp>
+    §5.4.
+    """
+    message_id = payload["message_id"]
+    to_agent_id = payload["to_agent_id"]
+    attempt = payload.get("attempt", 2)  # default sane fallback
+
+    session = await _get_db_session(ctx)
+    redis_client = await _get_redis(ctx)
+    try:
+        ctx_load = await _load_message_context(
+            session, message_id=message_id, to_agent_id=to_agent_id
+        )
+        if ctx_load is None:
+            return
+        msg, to_agent, from_agent, user = ctx_load
+
+        # Per-user concurrent delivery cap (spec §5.6). Same as
+        # deliver_message_task — recycle outbox row + return if capped.
+        concurrent_key = await _check_concurrent_cap_or_recycle(
+            session,
+            redis_client,
+            user_id=str(user.id),
+            task_type="retry_message",
+            payload=payload,
+        )
+        if concurrent_key is None and user.id and redis_client:
+            return
+
+        try:
+            # Claim: retry_ready → delivering atomically.
+            if not await _claim_message(
+                session, message_id=message_id, expected_state="retry_ready"
+            ):
+                return
+            await session.refresh(msg)
+
+            t0 = time.monotonic()
+            result = await deliver_message_to_webhook(
+                msg=msg,
+                from_agent=from_agent,
+                to_agent=to_agent,
+                sender_user_slug=user.slug,
+                recipient_user_slug=user.slug,
+                attempt=attempt,
+            )
+            latency_ms = int((time.monotonic() - t0) * 1000)
+
+            await _route_attempt_outcome(
+                session,
+                msg=msg,
+                to_agent=to_agent,
+                attempt=attempt,
+                result=result,
+                latency_ms=latency_ms,
+            )
+        finally:
+            await _release_concurrent(redis_client, concurrent_key)
     finally:
         await session.close()

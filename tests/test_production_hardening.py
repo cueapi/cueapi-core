@@ -200,7 +200,7 @@ async def test_unclaimed_execution_becomes_missed(db_session, db_engine):
     # Create user
     user = User(id=user_id, email=f"test-{uuid.uuid4().hex[:8]}@test.com",
                 api_key_hash="test_hash_missed", api_key_prefix="cue_sk_test",
-                webhook_secret="whsec_" + "c" * 64)
+                webhook_secret="whsec_" + "c" * 64, slug=f"test-{uuid.uuid4().hex[:8]}")
     db_session.add(user)
 
     # Create worker-transport cue
@@ -281,7 +281,7 @@ async def test_missed_status_distinct_from_failed(db_session, db_engine):
 
     user = User(id=user_id, email=f"distinct-{uuid.uuid4().hex[:8]}@test.com",
                 api_key_hash="test_hash_distinct", api_key_prefix="cue_sk_test",
-                webhook_secret="whsec_" + "d" * 64)
+                webhook_secret="whsec_" + "d" * 64, slug=f"distinct-{uuid.uuid4().hex[:8]}")
     db_session.add(user)
 
     cue = Cue(
@@ -410,7 +410,7 @@ async def test_fired_count_increments_on_execution_creation(db_session, db_engin
 
     user = User(id=user_id, email=f"fired-{uuid.uuid4().hex[:8]}@test.com",
                 api_key_hash="test_hash_fired", api_key_prefix="cue_sk_test",
-                webhook_secret="whsec_" + "a" * 64)
+                webhook_secret="whsec_" + "a" * 64, slug=f"fired-{uuid.uuid4().hex[:8]}")
     db_session.add(user)
 
     cue = Cue(
@@ -471,7 +471,7 @@ async def test_run_count_unchanged_by_fired_count(db_session, db_engine):
 
     user = User(id=user_id, email=f"runcount-{uuid.uuid4().hex[:8]}@test.com",
                 api_key_hash="test_hash_runcount", api_key_prefix="cue_sk_test",
-                webhook_secret="whsec_" + "b" * 64)
+                webhook_secret="whsec_" + "b" * 64, slug=f"runcount-{uuid.uuid4().hex[:8]}")
     db_session.add(user)
 
     cue = Cue(

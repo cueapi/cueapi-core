@@ -6,8 +6,11 @@ from app.models.usage_monthly import UsageMonthly
 from app.models.device_code import DeviceCode
 from app.models.worker import Worker
 from app.models.alert import Alert
+from app.models.agent import Agent
+from app.models.message import Message
+from app.models.usage_messages_monthly import UsageMessagesMonthly
 
 __all__ = [
     "User", "Cue", "Execution", "DispatchOutbox", "UsageMonthly", "DeviceCode",
-    "Worker", "Alert",
+    "Worker", "Alert", "Agent", "Message", "UsageMessagesMonthly",
 ]

@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     POLLER_BATCH_SIZE: int = 500
     WEBHOOK_CONCURRENCY_PER_WORKER: int = 50
     EXECUTION_STALE_AFTER_SECONDS: int = 300
+    # Per-user concurrent delivery cap shared across cue webhooks +
+    # messaging push deliveries. Prevents one user with thousands of
+    # subscribers from monopolizing the worker pool.
+    MAX_CONCURRENT_DELIVERIES_PER_USER: int = 50
+    # Messaging push delivery: how long a "delivering" message can sit
+    # before stale-recovery transitions it back to retry_ready.
+    MESSAGE_DELIVERY_STALE_AFTER_SECONDS: int = 300
     BASE_URL: str = "http://localhost:8000"
     ALLOW_REGISTER: bool = True
     RESEND_API_KEY: str = ""

@@ -22,6 +22,8 @@ if not settings.SESSION_SECRET:
 from app.database import Base, get_db
 from app.main import app
 from app.models import Alert, Cue, DispatchOutbox, Execution, UsageMonthly, User, Worker, DeviceCode  # noqa: F401
+# Messaging primitive models — must import so Base.metadata picks them up.
+from app.models import Agent, Message, UsageMessagesMonthly  # noqa: F401
 
 # Use the same database but create/drop tables for isolation
 TEST_DATABASE_URL = settings.DATABASE_URL
@@ -50,7 +52,10 @@ async def setup_database():
 async def flush_rate_limits():
     """Flush all rate limit keys before each test to prevent pollution."""
     client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
-    for pattern in ["ratelimit:*", "auth_dc:*", "auth_ml:*", "auth_ml_ip:*", "auth_poll:*", "echo_rl:*", "support_rl:*", "session:*", "backfill:*", "auth:*"]:
+    for pattern in ["ratelimit:*", "auth_dc:*", "auth_ml:*", "auth_ml_ip:*", "auth_poll:*", "echo_rl:*", "support_rl:*", "session:*", "backfill:*", "auth:*",
+                    # Messaging primitive (Phase 2.11 / 12.1.5) Redis keys.
+                    "concurrent:*", "msg_quota:*", "msg_ratelimit:*",
+                    "msg_priority_high:*", "msg_inbound_priority:*"]:
         keys = await client.keys(pattern)
         if keys:
             await client.delete(*keys)

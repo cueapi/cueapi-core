@@ -21,11 +21,13 @@ from app.services.alert_service import (
 
 
 async def _user(session: AsyncSession):
+    suffix = uuid.uuid4().hex[:8]
     u = User(
-        email=f"s-{uuid.uuid4().hex[:8]}@test.com",
+        email=f"s-{suffix}@test.com",
         api_key_hash=uuid.uuid4().hex,
         api_key_prefix="cue_sk_test",
         webhook_secret="x" * 64,
+        slug=f"s-{suffix}",
     )
     session.add(u)
     await session.commit()

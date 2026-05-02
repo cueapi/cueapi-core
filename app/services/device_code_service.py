@@ -269,12 +269,17 @@ async def verify_token(db: AsyncSession, token: str, device_code: str, redis) ->
         except Exception:
             logger.debug("SESSION_SECRET not configured, skipping key encryption")
 
+        # Derive a unique per-tenant slug for slug-form addressing.
+        from app.utils.slug import derive_user_slug
+        user_slug = await derive_user_slug(db, email)
+
         user = User(
             email=email,
             api_key_hash=new_hash,
             api_key_prefix=new_prefix,
             webhook_secret=generate_webhook_secret(),
             api_key_encrypted=new_encrypted,
+            slug=user_slug,
         )
         db.add(user)
         await db.flush()  # Get user.id
