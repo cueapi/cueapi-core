@@ -51,6 +51,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import AuthenticatedUser
+from app.config import settings
 from app.models import Agent, DispatchOutbox, Message
 from app.redis import get_redis
 from app.services.agent_service import resolve_address
@@ -226,22 +227,29 @@ async def create_message(
     # BEFORE the idempotency check — a dedup-hit on a key inside a
     # rate-limited window should still be allowed (it's not a new
     # message, it's the cached representation of an old one).
+    #
+    # When DISABLE_QUOTA_ENFORCEMENT=true (PR-5d), all three checks
+    # (per-minute rate, priority anti-abuse, monthly quota below) are
+    # bypassed. Integrators like Dock enforce per-tier limits at their
+    # own billing layer.
     redis = await get_redis()
     plan, monthly_limit = await get_user_plan_and_msg_limit(db, user.id)
+    priority_downgraded = False
 
-    # Per-minute rate limit (sliding window, plan-tiered).
-    await check_per_minute_rate_limit(user.id, plan, redis)
+    if not settings.DISABLE_QUOTA_ENFORCEMENT:
+        # Per-minute rate limit (sliding window, plan-tiered).
+        await check_per_minute_rate_limit(user.id, plan, redis)
 
-    # Priority-high anti-abuse — may downgrade priority to 3 silently
-    # for over-pair, or 429 for over-sender.
-    effective_priority, priority_downgraded = await check_priority_high_limits(
-        user_id=user.id,
-        from_agent_id=from_agent.id,
-        to_agent_id=to_agent.id,
-        priority=priority,
-        redis=redis,
-    )
-    priority = effective_priority
+        # Priority-high anti-abuse — may downgrade priority to 3 silently
+        # for over-pair, or 429 for over-sender.
+        effective_priority, priority_downgraded = await check_priority_high_limits(
+            user_id=user.id,
+            from_agent_id=from_agent.id,
+            to_agent_id=to_agent.id,
+            priority=priority,
+            redis=redis,
+        )
+        priority = effective_priority
 
     # 5. Idempotency check.
     fingerprint = _compute_fingerprint(
@@ -271,7 +279,9 @@ async def create_message(
 
     # 5.5. Monthly quota — checked here, AFTER idempotency. A dedup-hit
     # is not a new message; the quota check applies only to new sends.
-    await check_message_quota(db, user.id, monthly_limit, redis)
+    # Bypassed under DISABLE_QUOTA_ENFORCEMENT (PR-5d).
+    if not settings.DISABLE_QUOTA_ENFORCEMENT:
+        await check_message_quota(db, user.id, monthly_limit, redis)
 
     # 6. Resolve thread_id + reply_to chain.
     inherited_thread_id, parent_msg_id = await _resolve_reply_to(

@@ -87,6 +87,38 @@ class Settings(BaseSettings):
     AUTHZ_HOOK_URL: str = ""
     AUTHZ_HOOK_SECRET: str = ""
 
+    # ─── Dock-readiness packaging knobs (PR-5d) ─────────────────────
+    #
+    # Self-host integrators (Dock first; future others) often want to
+    # ship cueapi-core as a SUBSET of the full surface — for example,
+    # the messaging primitive without the cron / cues primitive, or
+    # without the email-driven device-code signup flow, or with quotas
+    # disabled because the integrator enforces them at their own
+    # billing layer. These flags are the supported way to do that.
+    #
+    # All default to False so default behavior matches the full
+    # cueapi-core experience. Self-hosters override via env var.
+
+    # Strips ``app/routers/cues.py`` + executions + workers + alert routes
+    # from the FastAPI app at startup. Cron loop (poller) is also disabled
+    # if running in the same process. Use when integrating cueapi-core as
+    # a messaging-only substrate (Dock Connect's case).
+    DISABLE_CUE_PRIMITIVE: bool = False
+
+    # Bypasses quota enforcement on:
+    #   - POST /v1/cues (active_cue_limit, monthly_execution_limit)
+    #   - POST /v1/messages (monthly_message_limit, priority rate-limits)
+    # Use when the integrator's billing/plan layer already gates these
+    # one level up (Dock enforces per-tier limits in src/lib/plan.ts).
+    DISABLE_QUOTA_ENFORCEMENT: bool = False
+
+    # Strips ``app/routers/device_code.py`` (the email-magic-link signup
+    # flow) from the FastAPI app at startup. Use when the integrator has
+    # its own user identity system and writes to the ``users`` table
+    # directly (Dock mirrors its User table into Cue's via shared
+    # Postgres or via PUT /v1/internal/users/{user_id} in PR-5c).
+    DISABLE_DEVICE_CODE: bool = False
+
     @property
     def async_database_url(self) -> str:
         """Convert postgresql:// to postgresql+asyncpg://."""

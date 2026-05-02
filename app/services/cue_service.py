@@ -159,16 +159,19 @@ async def create_cue(db: AsyncSession, user: AuthenticatedUser, data: CueCreate)
         }
 
     # Check cue limit
-    count_result = await db.execute(
-        select(func.count())
-        .select_from(Cue)
-        .where(Cue.user_id == user.id, Cue.status.in_(["active", "paused"]))
-    )
-    active_count = count_result.scalar()
-    if active_count >= user.active_cue_limit:
-        return {
-            "error": {"code": "cue_limit_exceeded", "message": f"Active cue limit of {user.active_cue_limit} reached", "status": 403}
-        }
+    # Skipped when DISABLE_QUOTA_ENFORCEMENT=true (PR-5d) — integrators
+    # like Dock enforce per-tier limits at their own billing layer.
+    if not settings.DISABLE_QUOTA_ENFORCEMENT:
+        count_result = await db.execute(
+            select(func.count())
+            .select_from(Cue)
+            .where(Cue.user_id == user.id, Cue.status.in_(["active", "paused"]))
+        )
+        active_count = count_result.scalar()
+        if active_count >= user.active_cue_limit:
+            return {
+                "error": {"code": "cue_limit_exceeded", "message": f"Active cue limit of {user.active_cue_limit} reached", "status": 403}
+            }
 
     # Validate callback URL (SSRF protection) — skip for worker transport
     transport = data.transport or "webhook"
