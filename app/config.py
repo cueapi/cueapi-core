@@ -65,6 +65,28 @@ class Settings(BaseSettings):
     # Generate with: ``python3 -c "import secrets; print(secrets.token_urlsafe(48))"``
     INTERNAL_AUTH_TOKEN: str = ""
 
+    # ─── Dock-readiness pluggable authz backend (PR-5b) ──────────────
+    #
+    # Default behavior is same-tenant only (per spec §3.4). Self-host
+    # integrators can override via either:
+    #
+    # 1. ``AUTHORIZATION_BACKEND`` — Python import path to a subclass
+    #    of ``AuthorizationBackend``, format ``module.path:ClassName``.
+    #    Loaded once at module import and cached. Use this when you
+    #    can ship Python code in your deployment.
+    #
+    # 2. ``AUTHZ_HOOK_URL`` — HTTPS URL the substrate POSTs to before
+    #    accepting any cross-user message. Use this when your authz
+    #    logic lives in a separate service (Dock's case — calls back
+    #    to ``POST /api/internal/auth/can-message`` on the Dock
+    #    cloud, which joins against Dock's WorkspaceMember table).
+    #
+    # Both unset → SameTenantAuthorizationBackend (default).
+    # Both set → AUTHORIZATION_BACKEND wins.
+    AUTHORIZATION_BACKEND: str = ""
+    AUTHZ_HOOK_URL: str = ""
+    AUTHZ_HOOK_SECRET: str = ""
+
     @property
     def async_database_url(self) -> str:
         """Convert postgresql:// to postgresql+asyncpg://."""
