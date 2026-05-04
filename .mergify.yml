@@ -1,0 +1,39 @@
+# Mergify config — Dependabot batching for cueapi-core.
+#
+# Regular PRs already auto-merge via the ``auto-merge`` job in
+# ``.github/workflows/feature-to-main.yml`` (uses GitHub native
+# auto-merge after the ``test`` job goes green). That flow is untouched.
+#
+# Mergify's job here is narrower: when Dependabot opens N version-bump
+# PRs in a week, we'd otherwise burn N CI runs and N merge commits.
+# This config batches them — up to 5 PRs queued together, one CI run
+# on the batched merge commit, one squash.
+#
+# Onboarding new behavior: open Dependabot, watch for the ``dependencies``
+# label on incoming PRs (set in ``.github/dependabot.yml``), Mergify
+# queues + batches them automatically. No human action needed.
+
+queue_rules:
+  - name: dependencies
+    batch_size: 5
+    batch_max_wait_time: 30 m
+    merge_conditions:
+      # Mirrors the required check from feature-to-main.yml. Update both
+      # together if the workflow's job ID or display name changes.
+      - check-success=test
+      - check-success=sdk-integration
+
+pull_request_rules:
+  - name: batch-merge Dependabot PRs
+    conditions:
+      - or:
+          - author=dependabot[bot]
+          - author=dependabot
+      - base=main
+      - -draft
+      - -conflict
+      - label=dependencies
+    actions:
+      queue:
+        name: dependencies
+        method: squash
