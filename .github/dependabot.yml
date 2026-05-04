@@ -1,0 +1,33 @@
+version: 2
+updates:
+  # Python — FastAPI backend (cueapi-core)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels: ["dependencies", "security"]
+    # Group patch + minor updates into a single PR per package-ecosystem.
+    # Major bumps still get their own PR for human review. Mergify
+    # batches the resulting PR group via .mergify.yml's "dependencies"
+    # queue.
+    groups:
+      python-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions — workflow dependency updates (pinned by SHA)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "ci"]
+    groups:
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
