@@ -36,10 +36,10 @@ jobs:
 
     steps:
       - name: Checkout cueapi-core
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.7
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4.1.7
 
       - name: Checkout cueapi-python SDK
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.1.7
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4.1.7
         with:
           repository: cueapi/cueapi-python
           path: cueapi-python
