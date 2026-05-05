@@ -79,6 +79,13 @@ def _parse_state_filter(
     return parsed
 
 
+def _bump_last_seen_stmt(agent_id, now):
+    """Pure helper: build the UPDATE statement that bumps an agent's
+    ``last_seen_at`` to ``now``. Ports cueapi/cueapi#630.
+    """
+    return update(Agent).where(Agent.id == agent_id).values(last_seen_at=now)
+
+
 async def list_inbox(
     db: AsyncSession,
     user: AuthenticatedUser,
@@ -203,6 +210,17 @@ async def list_inbox(
             .returning(Message.id)
         )
         await db.execute(upd_q)
+        # Agent Directory (Phase A): bump recipient's last_seen_at on
+        # every poll. Even if no queued messages, the poll proves the
+        # agent is active. Ports cueapi/cueapi#630.
+        await db.execute(_bump_last_seen_stmt(agent.id, now))
+        await db.commit()
+    else:
+        # No queued→delivered transition this call (filter excluded
+        # ``queued``), but we still observed activity from the recipient.
+        await db.execute(
+            _bump_last_seen_stmt(agent.id, datetime.now(timezone.utc))
+        )
         await db.commit()
 
     # Total (after the transition).

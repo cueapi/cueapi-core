@@ -340,6 +340,16 @@ async def create_message(
             )
         )
 
+    # Agent Directory (Phase A) — bump sender's last_seen_at so
+    # GET /v1/agents/roster derives 'online' correctly without
+    # requiring callers to PATCH status. Inline UPDATE keeps this in
+    # the same transaction as the message insert. Ports cueapi/cueapi#630.
+    from sqlalchemy import update as _update
+    from datetime import datetime as _dt, timezone as _tz
+    await db.execute(
+        _update(Agent).where(Agent.id == from_agent.id).values(last_seen_at=_dt.now(_tz.utc))
+    )
+
     await db.commit()
     await db.refresh(msg)
 

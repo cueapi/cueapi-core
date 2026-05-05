@@ -75,6 +75,11 @@ class Agent(Base):
         server_default="{}",
     )
     status = Column(String(16), nullable=False, default="online", server_default="online")
+    # Updated by hot-path service hooks (create_message sender,
+    # list_inbox recipient). Used to derive an "active in last N
+    # minutes" online signal in GET /v1/agents/roster. NULL = no
+    # activity observed yet. Ports cueapi/cueapi#630.
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(

@@ -32,6 +32,8 @@ from app.schemas.agent import (
     AgentCreate,
     AgentListResponse,
     AgentResponse,
+    AgentRosterEntry,
+    AgentRosterResponse,
     AgentUpdate,
     WebhookSecretResponse,
 )
@@ -40,6 +42,7 @@ from app.services.agent_service import (
     get_agent_owned,
     get_webhook_secret,
     list_agents,
+    list_roster,
     rotate_webhook_secret,
     soft_delete_agent,
     to_response_dict,
@@ -84,6 +87,52 @@ async def create_agent_endpoint(
     if plaintext_secret is not None:
         payload["webhook_secret"] = plaintext_secret
     return AgentResponse(**payload)
+
+
+def _etag_matches(if_none_match_header, server_etag):
+    """Pure helper: does the client's ``If-None-Match`` match the
+    server-computed weak ETag? Trims whitespace; None/empty → no match.
+    """
+    if not if_none_match_header:
+        return False
+    return if_none_match_header.strip() == server_etag
+
+
+@router.get("/roster", response_model=AgentRosterResponse)
+async def get_roster_endpoint(
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Directory snapshot for session-boot prompt injection.
+
+    Returns the caller's full agent roster in a display-optimized
+    shape — no pagination, no opaque IDs, no secrets, no timestamps,
+    plus derived ``online`` + ``last_seen_relative`` + ``preferred_contact``
+    fields. Soft-deleted agents are always excluded.
+
+    Distinct from ``GET /v1/agents`` (the management surface with full
+    ``AgentResponse`` shape). See PRD §Surface 5 for context.
+
+    Conditional GET: ``If-None-Match`` header that matches the
+    server-computed weak ETag returns ``304 Not Modified`` with no body.
+    Ports cueapi/cueapi#630.
+    """
+    result = await list_roster(db, user)
+    etag = result["etag"]
+
+    if _etag_matches(request.headers.get("if-none-match"), etag):
+        return JSONResponse(status_code=304, content=None, headers={"ETag": etag})
+
+    body = AgentRosterResponse(
+        generated_at=result["generated_at"],
+        agents=[AgentRosterEntry(**e) for e in result["agents"]],
+    )
+    return JSONResponse(
+        status_code=200,
+        content=body.model_dump(mode="json"),
+        headers={"ETag": etag, "Cache-Control": "private, max-age=300"},
+    )
 
 
 @router.get("", response_model=AgentListResponse)

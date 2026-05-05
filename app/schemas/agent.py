@@ -84,3 +84,38 @@ class WebhookSecretResponse(BaseModel):
     """Response for the webhook-secret retrieval and rotation endpoints."""
 
     webhook_secret: str
+
+
+class AgentRosterEntry(BaseModel):
+    """One agent in the directory snapshot returned by GET /v1/agents/roster.
+
+    Distinct from ``AgentResponse``: drops opaque IDs, secrets,
+    timestamps, and tenancy metadata, and adds derived ``online`` /
+    ``last_seen_relative`` fields. Optimized for prompt injection at
+    session-boot — agents see "who else is here" natively without
+    needing to call a tool. Ports cueapi/cueapi#630 (PRD §Surface 5).
+    """
+
+    name: str = Field(..., description="Stable per-tenant slug; addressable as `<name>@<user_slug>`.")
+    display_name: str
+    description: Optional[str] = Field(default=None, description="From metadata.description if set.")
+    online: bool = Field(..., description="Derived from last_seen_at within 5 min.")
+    last_seen_relative: str = Field(
+        ...,
+        description="Human-readable freshness: 'active now', '5m ago', 'offline 2h', 'never'.",
+    )
+    preferred_contact: Literal["sync", "async"] = Field(
+        ...,
+        description="Derived: webhook_url IS NOT NULL → 'sync' (push-capable), else 'async' (poll-only).",
+    )
+    status: Literal["online", "offline", "away"] = Field(
+        ...,
+        description="Caller-asserted status (PATCH /v1/agents/{ref}); overrides derivation when explicit.",
+    )
+
+
+class AgentRosterResponse(BaseModel):
+    """Response for GET /v1/agents/roster — full directory snapshot."""
+
+    generated_at: datetime
+    agents: List[AgentRosterEntry]
