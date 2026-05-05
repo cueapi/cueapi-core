@@ -63,6 +63,28 @@ class OnFailureConfig(BaseModel):
     pause: bool = False
 
 
+class FireRequest(BaseModel):
+    """Body for ``POST /v1/cues/{id}/fire`` (all fields optional).
+
+    No body / empty body fires immediately with ``cue.payload`` as-is.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    send_at: Optional[datetime] = Field(
+        default=None,
+        description=(
+            "Optional UTC timestamp to schedule this fire for the future. "
+            "When set, the resulting execution sits in `pending` until "
+            "`send_at <= now()`, then enters the normal dispatch path. "
+            "Same shape as the existing per-cue schedule, but per-fire. "
+            "Past timestamps are treated as 'fire now' (idempotent + "
+            "forgiving — no error, just dispatches immediately). Phase "
+            "12.1.7 / roadmap §13."
+        ),
+    )
+
+
 class CueCreate(BaseModel):
     name: str = Field(..., max_length=255)
     description: Optional[str] = None

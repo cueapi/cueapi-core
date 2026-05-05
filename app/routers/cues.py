@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import AuthenticatedUser, get_current_user
 from app.database import get_db
-from app.schemas.cue import CueCreate, CueDetailResponse, CueListResponse, CueResponse, CueUpdate
+from app.schemas.cue import CueCreate, CueDetailResponse, CueListResponse, CueResponse, CueUpdate, FireRequest
 from app.services.cue_service import create_cue, delete_cue, get_cue, list_cues, update_cue
 
 router = APIRouter(prefix="/v1/cues", tags=["cues"])
@@ -91,10 +91,22 @@ async def delete(
 @router.post("/{cue_id}/fire", status_code=200)
 async def fire_cue(
     cue_id: str,
+    body: Optional[FireRequest] = None,
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Manually fire a cue — creates an execution immediately regardless of schedule."""
+    """Manually fire a cue — creates an execution immediately regardless of schedule.
+
+    Optional body (``FireRequest``):
+
+    * ``send_at`` (datetime): schedule this fire for a future time. When
+      set, ``execution.scheduled_for`` and ``dispatch_outbox.scheduled_at``
+      are set so the dispatcher gates dispatch until then. Past
+      timestamps are treated as "fire now" (no error). Phase 12.1.7 /
+      roadmap §13.
+
+    No body fires immediately (existing behavior).
+    """
     import uuid as uuid_mod
     from datetime import datetime, timezone
     from sqlalchemy import select
@@ -109,7 +121,21 @@ async def fire_cue(
 
     now = datetime.now(timezone.utc)
     execution_id = uuid_mod.uuid4()
-    execution = Execution(id=execution_id, cue_id=cue.id, scheduled_for=now, status="pending", triggered_by="manual_fire")
+
+    # §13: per-fire scheduling. Future send_at → schedule; past/absent →
+    # fire now. Forgiving: past timestamps are not rejected, just
+    # treated as immediate.
+    requested_at = body.send_at if body and body.send_at else None
+    effective_scheduled_for = requested_at if requested_at and requested_at > now else now
+    is_scheduled = effective_scheduled_for > now
+
+    execution = Execution(
+        id=execution_id,
+        cue_id=cue.id,
+        scheduled_for=effective_scheduled_for,
+        status="pending",
+        triggered_by="manual_fire",
+    )
     db.add(execution)
 
     if cue.callback_transport == "webhook" and cue.callback_url:
@@ -118,11 +144,17 @@ async def fire_cue(
         ws = user_row.scalar_one_or_none() or ""
         outbox = DispatchOutbox(
             execution_id=execution_id, cue_id=cue.id, task_type="deliver",
+            # §13: when send_at is in the future, set scheduled_at so the
+            # dispatcher gates dispatch until then. NULL = dispatch
+            # immediately (existing behavior). The dispatcher's existing
+            # ``scheduled_at IS NULL OR scheduled_at <= now()`` filter
+            # already does the gating; we just plumb the timestamp.
+            scheduled_at=effective_scheduled_for if is_scheduled else None,
             payload={
                 "execution_id": str(execution_id), "cue_id": cue.id, "cue_name": cue.name,
                 "user_id": str(user.id), "callback_url": cue.callback_url,
                 "callback_method": cue.callback_method, "callback_headers": cue.callback_headers or {},
-                "payload": cue.payload or {}, "scheduled_for": now.isoformat(),
+                "payload": cue.payload or {}, "scheduled_for": effective_scheduled_for.isoformat(),
                 "retry_max_attempts": cue.retry_max_attempts,
                 "retry_backoff_minutes": cue.retry_backoff_minutes or [1, 5, 15],
                 "webhook_secret": ws,
@@ -131,4 +163,10 @@ async def fire_cue(
         db.add(outbox)
 
     await db.commit()
-    return {"id": str(execution_id), "cue_id": cue.id, "scheduled_for": now.isoformat(), "status": "pending", "triggered_by": "manual_fire"}
+    return {
+        "id": str(execution_id),
+        "cue_id": cue.id,
+        "scheduled_for": effective_scheduled_for.isoformat(),
+        "status": "pending",
+        "triggered_by": "manual_fire",
+    }

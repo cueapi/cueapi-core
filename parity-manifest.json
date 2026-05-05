@@ -94,7 +94,7 @@
       {"path": "app/routers/__init__.py", "private_counterpart": "app/routers/__init__.py", "last_synced": "2026-04-16"},
       {"path": "app/routers/alerts.py", "private_counterpart": "app/routers/alerts.py", "last_synced": "2026-04-17"},
       {"path": "app/routers/auth_routes.py", "private_counterpart": "app/routers/auth_routes.py", "last_synced": "2026-04-16"},
-      {"path": "app/routers/cues.py", "private_counterpart": "app/routers/cues.py", "last_synced": "2026-04-16"},
+      {"path": "app/routers/cues.py", "private_counterpart": "app/routers/cues.py", "last_synced": "2026-05-05", "ported_in": "port/618-cue-fire-send-at", "notes": "Adds FireRequest body + send_at plumbing through Execution.scheduled_for and DispatchOutbox.scheduled_at. Ports cueapi/cueapi#618."},
       {"path": "app/routers/device_code.py", "private_counterpart": "app/routers/device_code.py", "last_synced": "2026-04-16"},
       {"path": "app/routers/echo.py", "private_counterpart": "app/routers/echo.py", "last_synced": "2026-04-16"},
       {"path": "app/routers/executions.py", "private_counterpart": "app/routers/executions.py", "last_synced": "2026-04-16"},
@@ -108,7 +108,7 @@
     "schemas": [
       {"path": "app/schemas/__init__.py", "private_counterpart": "app/schemas/__init__.py", "last_synced": "2026-04-16"},
       {"path": "app/schemas/alert.py", "private_counterpart": "app/schemas/alert.py", "last_synced": "2026-04-17"},
-      {"path": "app/schemas/cue.py", "private_counterpart": "app/schemas/cue.py", "last_synced": "2026-04-16"},
+      {"path": "app/schemas/cue.py", "private_counterpart": "app/schemas/cue.py", "last_synced": "2026-05-05", "ported_in": "port/618-cue-fire-send-at", "notes": "Adds FireRequest schema with send_at field. Ports cueapi/cueapi#618."},
       {"path": "app/schemas/execution.py", "private_counterpart": "app/schemas/execution.py", "last_synced": "2026-04-16"},
       {"path": "app/schemas/outcome.py", "private_counterpart": "app/schemas/outcome.py", "last_synced": "2026-04-16"},
       {"path": "app/schemas/worker.py", "private_counterpart": "app/schemas/worker.py", "last_synced": "2026-04-16"},
