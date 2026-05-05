@@ -115,6 +115,12 @@ class Message(Base):
     # threshold gets moved back to ``retry_ready`` so the dispatcher
     # can re-enqueue. Handles worker-crash-mid-delivery.
     delivering_started_at = Column(DateTime(timezone=True), nullable=True)
+    # §13 / Phase 12.1.7: scheduled-send. NULL = send now (existing
+    # behavior); future timestamp = inbox-fetch + push-delivery dispatch
+    # both gate on ``send_at IS NULL OR send_at <= now()`` so the
+    # message is invisible until its time. Past timestamps are forgiving
+    # fallback at the service layer (treated as send-now).
+    send_at = Column(DateTime(timezone=True), nullable=True)
     expires_at = Column(
         DateTime(timezone=True),
         nullable=False,

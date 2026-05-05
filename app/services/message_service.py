@@ -138,6 +138,7 @@ async def create_message(
     metadata: Dict,
     idempotency_key: Optional[str],
     from_agent: Agent,
+    send_at: Optional[datetime] = None,
 ) -> Tuple[Message, bool, bool]:
     """Send a message. Returns (message, was_dedup_hit, priority_downgraded).
 
@@ -291,7 +292,18 @@ async def create_message(
     # 7. Generate id; thread_id == self.id for root messages, else inherits.
     msg_id = generate_message_id()
     thread_id = inherited_thread_id or msg_id
-    expires_at = datetime.now(timezone.utc) + timedelta(days=MESSAGE_TTL_DAYS)
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(days=MESSAGE_TTL_DAYS)
+
+    # §13 / Phase 12.1.7: per-message scheduling. ``send_at`` in the
+    # future delays delivery; past timestamps are forgiving fallback
+    # (treated as send-now — caller doesn't have to worry about clock
+    # skew or being a few ms late). NULL stays NULL.
+    effective_send_at: Optional[datetime] = None
+    is_scheduled = False
+    if send_at is not None and send_at > now:
+        effective_send_at = send_at
+        is_scheduled = True
 
     msg = Message(
         id=msg_id,
@@ -310,6 +322,7 @@ async def create_message(
         metadata_=metadata or {},
         idempotency_key=idempotency_key,
         idempotency_fingerprint=fingerprint if idempotency_key else None,
+        send_at=effective_send_at,
         expires_at=expires_at,
     )
     db.add(msg)
@@ -332,6 +345,12 @@ async def create_message(
                 execution_id=None,
                 cue_id=None,
                 task_type="deliver_message",
+                # §13: when send_at is in the future, set scheduled_at so
+                # the dispatcher gates dispatch until then. NULL =
+                # dispatch immediately (existing behavior). The
+                # dispatcher's ``scheduled_at IS NULL OR scheduled_at <=
+                # now()`` filter handles the gating.
+                scheduled_at=effective_send_at if is_scheduled else None,
                 payload={
                     "message_id": msg_id,
                     "to_agent_id": to_agent.id,
@@ -509,5 +528,6 @@ def to_response_dict(msg: Message) -> Dict:
         "read_at": msg.read_at,
         "acked_at": msg.acked_at,
         "failed_at": msg.failed_at,
+        "send_at": msg.send_at,
         "expires_at": msg.expires_at,
     }

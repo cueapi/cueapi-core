@@ -87,7 +87,7 @@
       {"path": "app/models/user.py", "private_counterpart": "app/models/user.py", "last_synced": "2026-04-16"},
       {"path": "app/models/worker.py", "private_counterpart": "app/models/worker.py", "last_synced": "2026-04-16"},
       {"path": "app/models/agent.py", "private_counterpart": "app/models/agent.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
-      {"path": "app/models/message.py", "private_counterpart": "app/models/message.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "from_api_key_id column omitted (multi-key scoping is hosted-only)"},
+      {"path": "app/models/message.py", "private_counterpart": "app/models/message.py", "last_synced": "2026-05-05", "ported_in": "port/623-message-send-at", "deviation": "from_api_key_id column omitted (multi-key scoping is hosted-only). send_at column added by port/623."},
       {"path": "app/models/usage_messages_monthly.py", "private_counterpart": "app/models/usage_messages_monthly.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"}
     ],
     "routers": [
@@ -103,7 +103,7 @@
       {"path": "app/routers/webhook_secret.py", "private_counterpart": "app/routers/webhook_secret.py", "last_synced": "2026-04-16"},
       {"path": "app/routers/workers.py", "private_counterpart": "app/routers/workers.py", "last_synced": "2026-04-16"},
       {"path": "app/routers/agents.py", "private_counterpart": "app/routers/agents.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
-      {"path": "app/routers/messages.py", "private_counterpart": "app/routers/messages.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"}
+      {"path": "app/routers/messages.py", "private_counterpart": "app/routers/messages.py", "last_synced": "2026-05-05", "ported_in": "port/623-message-send-at"}
     ],
     "schemas": [
       {"path": "app/schemas/__init__.py", "private_counterpart": "app/schemas/__init__.py", "last_synced": "2026-04-16"},
@@ -113,7 +113,7 @@
       {"path": "app/schemas/outcome.py", "private_counterpart": "app/schemas/outcome.py", "last_synced": "2026-04-16"},
       {"path": "app/schemas/worker.py", "private_counterpart": "app/schemas/worker.py", "last_synced": "2026-04-16"},
       {"path": "app/schemas/agent.py", "private_counterpart": "app/schemas/agent.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "api_key_id field omitted from AgentResponse (multi-key scoping is hosted-only)"},
-      {"path": "app/schemas/message.py", "private_counterpart": "app/schemas/message.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "from_api_key_id field omitted from MessageResponse (multi-key scoping is hosted-only)"}
+      {"path": "app/schemas/message.py", "private_counterpart": "app/schemas/message.py", "last_synced": "2026-05-05", "ported_in": "port/623-message-send-at", "deviation": "from_api_key_id field omitted from MessageResponse (multi-key scoping is hosted-only). send_at field added by port/623."}
     ],
     "services": [
       {"path": "app/services/__init__.py", "private_counterpart": "app/services/__init__.py", "last_synced": "2026-04-16"},
@@ -125,10 +125,10 @@
       {"path": "app/services/usage_service.py", "private_counterpart": "app/services/usage_service.py", "last_synced": "2026-04-16"},
       {"path": "app/services/webhook.py", "private_counterpart": "app/services/webhook.py", "last_synced": "2026-04-16"},
       {"path": "app/services/agent_service.py", "private_counterpart": "app/services/agent_service.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "user.api_key_id reference removed (multi-key scoping is hosted-only)"},
-      {"path": "app/services/inbox_service.py", "private_counterpart": "app/services/inbox_service.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
+      {"path": "app/services/inbox_service.py", "private_counterpart": "app/services/inbox_service.py", "last_synced": "2026-05-05", "ported_in": "port/623-message-send-at"},
       {"path": "app/services/message_classification.py", "private_counterpart": "app/services/message_classification.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
       {"path": "app/services/message_delivery.py", "private_counterpart": "app/services/message_delivery.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
-      {"path": "app/services/message_service.py", "private_counterpart": "app/services/message_service.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "user.api_key_id and msg.from_api_key_id references removed"},
+      {"path": "app/services/message_service.py", "private_counterpart": "app/services/message_service.py", "last_synced": "2026-05-05", "ported_in": "port/623-message-send-at", "deviation": "user.api_key_id and msg.from_api_key_id references removed. send_at parameter + plumbing added by port/623."},
       {"path": "app/services/message_usage_service.py", "private_counterpart": "app/services/message_usage_service.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"}
     ],
     "utils": [

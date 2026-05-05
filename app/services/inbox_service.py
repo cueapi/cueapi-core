@@ -126,41 +126,22 @@ async def list_inbox(
         # is just an additional WHERE clause.
         counterpart_agent = await resolve_address(db, counterpart)
 
-    # Inbox visibility is gated by AGENT OWNERSHIP, not by Message.user_id.
-    # ``get_agent_owned`` above already enforces ``agent.user_id == user.id``,
-    # so any message addressed to ``agent.id`` is implicitly authorized:
-    # the caller owns the recipient agent, regardless of who sent it.
+    # Inbox visibility is gated by AGENT OWNERSHIP, not by Message.user_id
+    # (PR #52 fix — same-tenant ``Message.user_id == user.id`` predicate
+    # silently dropped cross-user messages once PR-5b enabled cross-user
+    # send via WebhookAuthorizationBackend).
     #
-    # Pre-fix this query also filtered ``Message.user_id == user.id``,
-    # which silently dropped cross-user messages because ``Message.user_id``
-    # is the SENDER's user_id (set at insert time by ``create_message``).
-    # That worked accidentally for v1's same-tenant constraint where the
-    # values matched on both sides; it broke when PR-5b added the
-    # WebhookAuthorizationBackend cross-user path because the send route
-    # started accepting messages from a different user, but this read
-    # path mathematically excluded them. Bug surfaced by Dock's
-    # cue.dock.svc deployment, see CHANGELOG entry for messaging-v1.1.0.
-    #
-    # ``Message.user_id`` is retained as the SENDER scope (used by
-    # ``list_sent`` below, the idempotency check in ``create_message``,
-    # and the per-user monthly_message_limit accounting). Inbox-side
-    # access doesn't need it: ``to_agent_id`` plus the agent-ownership
-    # invariant is the right boundary.
-    #
-    # Audit completeness (per CMA review on PR #52, 2026-05-06):
-    # ``rg "Message\.user_id\s*==" app/ worker/`` returns FOUR call
-    # sites total — the two flipped here (this base_filter +
-    # the queued→delivered UPDATE below), plus the two correctly
-    # KEPT in ``message_service``: the idempotency check at
-    # ``create_message`` and the ``list_sent`` filter further down
-    # in this file. ``rg "msg\.user_id"`` returns one extra read in
-    # ``worker/tasks.py:744`` that fetches the SENDER's user record
-    # for push-delivery context (not an auth predicate; correct).
-    # No webhook delivery callback, cue-bus side effect, or audit
-    # log scan uses ``Message.user_id`` as an auth boundary.
+    # §13 / Phase 12.1.7: scheduled-send gate. Messages with a future
+    # ``send_at`` are invisible to the recipient until that time —
+    # they'll become visible the first time the recipient polls after
+    # the send_at moment.
+    now = datetime.now(timezone.utc)
+    send_at_gate = or_(Message.send_at.is_(None), Message.send_at <= now)
+
     base_filters = [
         Message.to_agent_id == agent.id,
         Message.delivery_state.in_(state_tuple),
+        send_at_gate,
     ]
     if since is not None:
         base_filters.append(Message.created_at > since)
@@ -189,17 +170,21 @@ async def list_inbox(
     # threads. (Pre-v1.1.1 the inbox poll was always full-inbox so
     # this distinction didn't exist.)
     if "queued" in state_tuple:
-        now = datetime.now(timezone.utc)
+        upd_now = datetime.now(timezone.utc)
         upd_predicates = [
             Message.to_agent_id == agent.id,
             Message.delivery_state == "queued",
+            # §13: don't transition scheduled-but-not-yet-due messages.
+            # Their queued→delivered flip waits until send_at <= now()
+            # (whichever poll comes after the scheduled time).
+            or_(Message.send_at.is_(None), Message.send_at <= upd_now),
         ]
         if counterpart_agent is not None:
             upd_predicates.append(Message.from_agent_id == counterpart_agent.id)
         upd_q = (
             update(Message)
             .where(*upd_predicates)
-            .values(delivery_state="delivered", delivered_at=now)
+            .values(delivery_state="delivered", delivered_at=upd_now)
             .returning(Message.id)
         )
         await db.execute(upd_q)

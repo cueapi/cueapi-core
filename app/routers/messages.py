@@ -91,6 +91,7 @@ async def send_message(
         metadata=body.metadata,
         idempotency_key=idempotency_key,
         from_agent=from_agent,
+        send_at=body.send_at,
     )
     status_code = 200 if was_dedup_hit else 201
     headers = {}
