@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.database import Base
@@ -9,12 +9,23 @@ from app.database import Base
 class DispatchOutbox(Base):
     __tablename__ = "dispatch_outbox"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
     # Nullable since migration 021: cue-task rows still set execution_id +
     # cue_id; message-task rows (deliver_message / retry_message) leave
     # them NULL and reference message_id in the payload instead.
-    execution_id = Column(UUID(as_uuid=True), nullable=True)
-    cue_id = Column(String(20), nullable=True)
+    # FK declarations match migration 002 intent (table-level CASCADE on
+    # parent delete). Tests use Base.metadata.create_all and rely on the
+    # model declaring these so SQLAlchemy ORM can traverse relationships.
+    execution_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("executions.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    cue_id = Column(
+        String(20),
+        ForeignKey("cues.id", ondelete="CASCADE"),
+        nullable=True,
+    )
     task_type = Column(String(20), nullable=False, default="deliver")
     payload = Column(JSONB, nullable=False, default={})
     dispatched = Column(Boolean, nullable=False, default=False)

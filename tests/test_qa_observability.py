@@ -9,7 +9,69 @@ from sqlalchemy import select, text
 
 from app.models.device_code import DeviceCode
 from app.models.dispatch_outbox import DispatchOutbox
+from app.models.execution import Execution
 from worker.poller import cleanup_device_codes, cleanup_outbox
+
+# Imported lazily inside _create_anchor_execution to avoid pulling extra
+# model symbols at module import time.
+
+
+async def _create_anchor_execution(db_session) -> uuid.UUID:
+    """Create a real User + Cue + Execution and return the execution id.
+
+    Outbox rows have a FK on ``execution_id → executions.id``
+    (ON DELETE CASCADE) per migration 002. Tests that previously
+    inserted outbox rows with synthetic UUIDs relied on the model
+    omitting the FK; now that the model agrees with the migration
+    they must point at a real execution. Ported from cueapi/cueapi#594.
+    """
+    from app.models.user import User
+    from app.models.cue import Cue
+    from app.utils.ids import (
+        generate_api_key,
+        generate_cue_id,
+        generate_webhook_secret,
+        get_api_key_prefix,
+        hash_api_key,
+    )
+
+    api_key = generate_api_key()
+    suffix = uuid.uuid4().hex[:8]
+    user = User(
+        email=f"obs-{suffix}@test.com",
+        api_key_hash=hash_api_key(api_key),
+        api_key_prefix=get_api_key_prefix(api_key),
+        webhook_secret=generate_webhook_secret(),
+        slug=f"obs-{suffix}",
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    cue = Cue(
+        id=generate_cue_id(),
+        user_id=user.id,
+        name=f"obs-cue-{suffix}",
+        status="active",
+        schedule_type="once",
+        schedule_timezone="UTC",
+        callback_url="http://localhost:19999/webhook",
+        callback_method="POST",
+        next_run=datetime.now(timezone.utc) - timedelta(minutes=1),
+    )
+    db_session.add(cue)
+    await db_session.flush()
+
+    exec_id = uuid.uuid4()
+    db_session.add(
+        Execution(
+            id=exec_id,
+            cue_id=cue.id,
+            scheduled_for=datetime.now(timezone.utc),
+            status="pending",
+        )
+    )
+    await db_session.commit()
+    return exec_id
 
 
 # ── Health endpoint ──────────────────────────────────────────────────
@@ -39,12 +101,12 @@ async def test_health_includes_metrics(client):
 async def test_outbox_cleanup_removes_old_rows(db_session, db_engine):
     """Dispatched outbox rows older than 7 days are deleted."""
     old_time = datetime.now(timezone.utc) - timedelta(days=10)
-    exec_id = uuid.uuid4()
+    exec_id = await _create_anchor_execution(db_session)
 
     await db_session.execute(
         DispatchOutbox.__table__.insert().values(
             execution_id=exec_id,
-            cue_id="cue_old000001",
+            cue_id=None,
             task_type="deliver",
             payload={},
             dispatched=True,
@@ -67,12 +129,12 @@ async def test_outbox_cleanup_removes_old_rows(db_session, db_engine):
 async def test_outbox_cleanup_keeps_recent(db_session, db_engine):
     """Dispatched outbox rows newer than 7 days are kept."""
     recent_time = datetime.now(timezone.utc) - timedelta(days=1)
-    exec_id = uuid.uuid4()
+    exec_id = await _create_anchor_execution(db_session)
 
     await db_session.execute(
         DispatchOutbox.__table__.insert().values(
             execution_id=exec_id,
-            cue_id="cue_recent0001",
+            cue_id=None,
             task_type="deliver",
             payload={},
             dispatched=True,
@@ -94,12 +156,12 @@ async def test_outbox_cleanup_keeps_recent(db_session, db_engine):
 async def test_outbox_cleanup_keeps_undispatched(db_session, db_engine):
     """Undispatched outbox rows are never cleaned up regardless of age."""
     old_time = datetime.now(timezone.utc) - timedelta(days=30)
-    exec_id = uuid.uuid4()
+    exec_id = await _create_anchor_execution(db_session)
 
     await db_session.execute(
         DispatchOutbox.__table__.insert().values(
             execution_id=exec_id,
-            cue_id="cue_undisp001",
+            cue_id=None,
             task_type="deliver",
             payload={},
             dispatched=False,

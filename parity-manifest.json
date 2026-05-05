@@ -81,7 +81,7 @@
       {"path": "app/models/alert.py", "private_counterpart": "app/models/alert.py", "last_synced": "2026-04-17"},
       {"path": "app/models/cue.py", "private_counterpart": "app/models/cue.py", "last_synced": "2026-04-16"},
       {"path": "app/models/device_code.py", "private_counterpart": "app/models/device_code.py", "last_synced": "2026-04-16"},
-      {"path": "app/models/dispatch_outbox.py", "private_counterpart": "app/models/dispatch_outbox.py", "last_synced": "2026-04-16"},
+      {"path": "app/models/dispatch_outbox.py", "private_counterpart": "app/models/dispatch_outbox.py", "last_synced": "2026-05-05", "ported_in": "port/594-dispatch-outbox-cue-id-fk", "notes": "FK declarations on execution_id + cue_id ported from cueapi/cueapi#594"},
       {"path": "app/models/execution.py", "private_counterpart": "app/models/execution.py", "last_synced": "2026-04-16"},
       {"path": "app/models/usage_monthly.py", "private_counterpart": "app/models/usage_monthly.py", "last_synced": "2026-04-16"},
       {"path": "app/models/user.py", "private_counterpart": "app/models/user.py", "last_synced": "2026-04-16"},
