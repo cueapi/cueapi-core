@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import time
@@ -9,6 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from app.config import settings
 from app.database import async_session as db_session_factory
 from app.redis import get_redis
 from app.services.usage_service import get_monthly_usage
@@ -26,6 +28,33 @@ DEFAULT_RATE_LIMIT = 60
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        # Trusted-proxy bypass: when cueapi-core is deployed behind a
+        # proxy that fans out per-user requests under a single shared
+        # outbound IP (e.g. a SaaS proxying through Vercel's egress, or
+        # a Fly.io app routing many tenants through a single instance),
+        # the default per-IP bucket lumps every user into one and the
+        # 60/min cap blows after a few worker polls.
+        #
+        # Operators set ``INTERNAL_AUTH_TOKEN`` (already documented for
+        # the external-auth-backend path) so that requests whose
+        # ``Authorization: Bearer …`` matches it skip cue's limiter on
+        # the assumption that the upstream proxy enforces its own
+        # per-user rate limit. Requested by Dock (cue-dock-svc.fly.dev)
+        # which fans out trydock.ai users through Vercel's shared egress
+        # IP pool.
+        #
+        # Strictly opt-in: with ``INTERNAL_AUTH_TOKEN`` unset (the
+        # default), this branch is unreachable and behaviour is
+        # identical to upstream messaging-v1.0.0. Constant-time compare
+        # keeps the token off the timing-attack surface for matched
+        # paths.
+        internal_token = settings.INTERNAL_AUTH_TOKEN
+        if internal_token:
+            auth_header = request.headers.get("Authorization", "")
+            expected = f"Bearer {internal_token}"
+            if hmac.compare_digest(auth_header, expected):
+                return await call_next(request)
+
         # Skip rate limiting for exempt paths
         path = request.url.path
         if path in EXEMPT_PATHS or path.startswith(EXEMPT_PREFIXES):
