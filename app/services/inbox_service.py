@@ -125,6 +125,18 @@ async def list_inbox(
     # and the per-user monthly_message_limit accounting). Inbox-side
     # access doesn't need it: ``to_agent_id`` plus the agent-ownership
     # invariant is the right boundary.
+    #
+    # Audit completeness (per CMA review on PR #52, 2026-05-06):
+    # ``rg "Message\.user_id\s*==" app/ worker/`` returns FOUR call
+    # sites total — the two flipped here (this base_filter +
+    # the queued→delivered UPDATE below), plus the two correctly
+    # KEPT in ``message_service``: the idempotency check at
+    # ``create_message`` and the ``list_sent`` filter further down
+    # in this file. ``rg "msg\.user_id"`` returns one extra read in
+    # ``worker/tasks.py:744`` that fetches the SENDER's user record
+    # for push-delivery context (not an auth predicate; correct).
+    # No webhook delivery callback, cue-bus side effect, or audit
+    # log scan uses ``Message.user_id`` as an auth boundary.
     base_filters = [
         Message.to_agent_id == agent.id,
         Message.delivery_state.in_(state_tuple),

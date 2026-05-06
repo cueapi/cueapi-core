@@ -377,8 +377,35 @@ async def get_message_for_user(
     sender and recipient can have different user_ids; the recipient
     must still be able to read messages addressed to their agent.
 
-    Returning 404 for a real-but-inaccessible message keeps existence
-    from leaking across the boundary.
+    Existence-non-leak invariant (load-bearing):
+
+      Both error paths below — message-not-found AND
+      message-found-but-not-yours — return the SAME 404 code +
+      ``message_not_found`` slug. Splitting these (e.g. 403 for
+      "exists but unauthorized" / 404 for "absent") would tell a
+      probing client whether a given ``msg_id`` exists in the
+      system, opening a side-channel enumeration attack across
+      tenant boundaries. If you ever extract one of these branches,
+      keep both responses byte-identical or you'll regress this
+      invariant. Verified by ``test_get_message_third_party_404``
+      in tests/test_messages_cross_user_delivery.py.
+
+    Hard-deleted ``to_agent`` (asked on PR #52 review):
+
+      The INNER JOIN below would drop the row if ``to_agent_id``
+      no longer resolves in ``agents`` — making the sender 404 too.
+      That state is unreachable by design: ``Message.to_agent_id``
+      is ``ForeignKey("agents.id", ondelete="SET NULL")`` AND
+      ``nullable=False`` (app/models/message.py:69-74). Postgres
+      cannot ``SET NULL`` on a NOT NULL column, so a DELETE on an
+      Agent that's still referenced by a Message fails with an
+      integrity error. By the time the agent could possibly be
+      hard-deleted, ``worker/message_cleanup`` has already swept
+      the messages, and GET on the absent message returns 404 from
+      the ``Message.id == msg_id`` mismatch — never from the JOIN
+      missing. Soft-delete (``Agent.deleted_at`` non-null) leaves
+      the row intact so the JOIN still resolves; covered by
+      ``test_get_message_when_recipient_agent_soft_deleted``.
     """
     result = await db.execute(
         select(Message, Agent.user_id.label("to_owner_id"))

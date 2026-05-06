@@ -346,3 +346,98 @@ async def test_get_message_by_id_third_party_gets_404(
             f"Third party must get 404 (not 403, not 200). "
             f"Got {third_get.status_code}."
         )
+
+
+@pytest.mark.asyncio
+async def test_get_message_when_recipient_agent_soft_deleted(
+    client, auth_headers, other_auth_headers, db_session
+):
+    """Soft-deleted recipient agent → GET /v1/messages/{id} stays
+    visible to both sender AND recipient owner.
+
+    This pins the INNER JOIN behavior in ``get_message_for_user``
+    against the only deletion state actually reachable for an agent
+    that has referenced messages (see hard-delete note below).
+    Soft-delete leaves the ``agents`` row in place with ``deleted_at``
+    set; the JOIN to ``Agent`` succeeds, ``Agent.user_id`` resolves,
+    and the visibility check ("sender OR recipient agent owner")
+    fires correctly. Both sides keep audit access to the historical
+    message — the right behavior for an agent that was retired but
+    whose conversations remain auditable.
+
+    Hard-delete is schema-blocked. Mike asked on review what happens
+    if ``to_agent`` is hard-deleted — the JOIN would drop the row
+    and the sender would also 404. That state is unreachable through
+    normal cleanup paths: ``Message.to_agent_id`` is declared as
+    ``ForeignKey("agents.id", ondelete="SET NULL")`` AND
+    ``nullable=False`` (see app/models/message.py:69-74). Postgres
+    cannot ``SET NULL`` on a NOT NULL column, so any DELETE on an
+    Agent that's still referenced by a Message fails with an
+    integrity error. Hard-delete only succeeds AFTER
+    ``worker/message_cleanup.cleanup_expired_messages`` has swept
+    every referencing row, by which point GET on the now-deleted
+    Message returns 404 because the Message row itself is gone —
+    not because of a JOIN miss.
+
+    So the reachable states are:
+      - Agent live, message live  → both sides see it (test 1)
+      - Agent soft-deleted, message live → both sides see it (this test)
+      - Agent + message both hard-deleted → 404 (Message row absent)
+      - Agent hard-deleted while message lives → impossible (FK)
+
+    Pinning the soft-delete case here covers the only edge that
+    actually shapes runtime behavior. The hard-delete-with-references
+    impossibility is documented in-line above ``get_message_for_user``.
+    """
+    from datetime import datetime, timezone
+    from sqlalchemy import update as _sa_update
+
+    from app.models import Agent
+
+    sender = await _make_agent(client, auth_headers, slug=f"s-{uuid.uuid4().hex[:6]}")
+    recipient = await _make_agent(
+        client, other_auth_headers, slug=f"r-{uuid.uuid4().hex[:6]}"
+    )
+
+    with _patch_authz_backend(_AlwaysAllowBackend()):
+        send = await client.post(
+            "/v1/messages",
+            json={"to": recipient["id"], "body": "before soft-delete"},
+            headers={**auth_headers, **_from_header(sender)},
+        )
+        assert send.status_code == 201, send.text
+        msg_id = send.json()["id"]
+
+        # Soft-delete the recipient agent directly. The public API
+        # exposes soft-delete via DELETE /v1/agents/{id}; we set the
+        # field directly to skip the auth-routing detail (already
+        # exercised on the happy path).
+        await db_session.execute(
+            _sa_update(Agent)
+            .where(Agent.id == recipient["id"])
+            .values(deleted_at=datetime.now(timezone.utc))
+        )
+        await db_session.commit()
+
+        # Sender still sees their sent message — Agent row is still
+        # there, JOIN succeeds, visibility check passes on
+        # ``is_sender``.
+        sender_get = await client.get(
+            f"/v1/messages/{msg_id}", headers=auth_headers
+        )
+        assert sender_get.status_code == 200, (
+            f"Sender should still see message after recipient agent was "
+            f"soft-deleted (Agent row remains, JOIN resolves). "
+            f"Got {sender_get.status_code}: {sender_get.text}"
+        )
+
+        # Recipient owner still sees the message addressed to their
+        # (now soft-deleted) agent — audit access preserved.
+        recipient_get = await client.get(
+            f"/v1/messages/{msg_id}", headers=other_auth_headers
+        )
+        assert recipient_get.status_code == 200, (
+            f"Recipient owner should still see message after their agent "
+            f"was soft-deleted. Got {recipient_get.status_code}: "
+            f"{recipient_get.text}"
+        )
