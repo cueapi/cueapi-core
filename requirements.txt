@@ -7,7 +7,7 @@ pydantic[email]==2.13.3
 pydantic-settings==2.14.0
 httpx==0.28.1
 croniter==2.0.0
-pytz==2024.1
+pytz==2026.2
 python-dotenv==1.2.2
 pytest==8.3.0
 pytest-asyncio==0.24.0
