@@ -4,6 +4,54 @@ All notable changes to cueapi-core will be documented here.
 
 ## [Unreleased]
 
+### Fixed (messaging-v1.1.0 — 2026-05-06)
+
+- **Cross-user messages now appear in the recipient's inbox.** Pre-fix,
+  `POST /v1/messages` from sender (user A) → recipient agent (owned by
+  user B, A ≠ B) returned 201 and persisted the row, but the recipient's
+  `GET /v1/agents/{ref}/inbox` returned empty and the row stayed
+  `delivery_state="queued"` indefinitely. Cross-user messages were
+  effectively silent-dropped on the read side. Same-user delivery was
+  unaffected.
+
+  **Root cause.** `inbox_service.list_inbox` and the atomic
+  queued→delivered UPDATE both filtered on `Message.user_id == user.id`.
+  `Message.user_id` is the SENDER's user_id (set by `create_message` at
+  insert time), so when the recipient's owner polled, the predicate
+  became `WHERE user_id = recipient.id` and mathematically excluded the
+  cross-user row. PR-5b's `WebhookAuthorizationBackend` opened the
+  cross-user *send* path but didn't touch the *read* path; the bug was
+  introduced by that asymmetry.
+
+  **Fix.** Drop the `Message.user_id` predicate from inbox reads.
+  Visibility is now correctly gated by AGENT OWNERSHIP — `get_agent_owned`
+  at the route layer enforces `agent.user_id == user.id`, so any message
+  addressed to that agent is implicitly authorized. `Message.user_id`
+  retains its real role (sender / billing scope, idempotency dedup,
+  monthly_message_limit accounting). `get_message_for_user` similarly
+  expanded from sender-only to "sender OR recipient agent owner" via a
+  JOIN to `Agent`.
+
+  **Behavior change.** Pre-fix, cross-user messages were silently
+  dropped on read; post-fix, they're delivered. Wire shape is unchanged
+  (same request/response contracts on every endpoint). Versioned as a
+  minor bump (`messaging-v1.1.0`) rather than a patch because the
+  visible behavior of the system changes — clients that depended on the
+  silent-drop side effect (none known; hopefully none exist) would see
+  a behavior shift.
+
+  **No migration.** Existing rows have correct `to_agent_id` values; the
+  fix is read-side only. Quotas unchanged: sender-scoped
+  `monthly_message_limit` still increments at send time. Recipient gets
+  visibility but isn't quota-charged for inbound, which is correct.
+
+  **Subtree pull (downstream Dock):**
+  ```bash
+  git subtree pull --prefix services/cue \
+    https://github.com/cueapi/cueapi-core.git \
+    messaging-v1.1.0 --squash
+  ```
+
 ### Added (messaging primitive port — 2026-05-01)
 
 - **Messaging primitive v1** (Phase 2.11 / 12.1.5 in the private monorepo, ported to OSS as a single coherent feature). Persistent identity-addressed messages between agents, on top of the existing scheduling/delivery infrastructure.
