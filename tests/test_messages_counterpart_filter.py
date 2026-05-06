@@ -275,13 +275,20 @@ async def test_counterpart_poll_does_not_deliver_other_threads(client, auth_head
 
 
 @pytest.mark.asyncio
-async def test_counterpart_accepts_slug_form(
-    client, auth_headers, registered_user
-):
+async def test_counterpart_accepts_slug_form(client, auth_headers):
     """``counterpart`` accepts slug-form (``agent_slug@user_slug``)
     just like POST /v1/messages's ``to`` field. Both should resolve
-    to the same Agent.id and produce the same filter result."""
-    user_slug = registered_user["slug"]
+    to the same Agent.id and produce the same filter result.
+
+    User slug comes from ``/v1/auth/me`` (the register response only
+    returns api_key + email; the slug is auto-derived by the server
+    and surfaced via the /me endpoint).
+    """
+    me_resp = await client.get("/v1/auth/me", headers=auth_headers)
+    assert me_resp.status_code == 200, me_resp.text
+    user_slug = me_resp.json()["slug"]
+    assert user_slug, "user_slug must be set; slug-form addressing requires it"
+
     sender_slug = f"sslg-{uuid.uuid4().hex[:6]}"
     recipient_slug = f"rslg-{uuid.uuid4().hex[:6]}"
 
