@@ -369,17 +369,62 @@ async def get_message_for_user(
 ) -> Message:
     """Fetch a message visible to the caller (sender OR recipient).
 
-    v1 same-tenant constraint means both agents are owned by the
-    caller's user_id. ``Message.user_id`` is the sender's user — we
-    expand to also allow the recipient via the to_agent FK if needed.
-    For now, since cross-tenant is blocked at create time, both sides
-    have the same ``user_id``.
+    Visibility rule: a caller sees a message if they own EITHER the
+    ``from_agent`` (sender side) OR the ``to_agent`` (recipient side).
+    ``Message.user_id`` is the SENDER's user — comparing it directly
+    to the caller's user_id only works when sender and recipient share
+    a tenant. With PR-5b's cross-user authorization backend, the
+    sender and recipient can have different user_ids; the recipient
+    must still be able to read messages addressed to their agent.
+
+    Existence-non-leak invariant (load-bearing):
+
+      Both error paths below — message-not-found AND
+      message-found-but-not-yours — return the SAME 404 code +
+      ``message_not_found`` slug. Splitting these (e.g. 403 for
+      "exists but unauthorized" / 404 for "absent") would tell a
+      probing client whether a given ``msg_id`` exists in the
+      system, opening a side-channel enumeration attack across
+      tenant boundaries. If you ever extract one of these branches,
+      keep both responses byte-identical or you'll regress this
+      invariant. Verified by ``test_get_message_third_party_404``
+      in tests/test_messages_cross_user_delivery.py.
+
+    Hard-deleted ``to_agent`` (asked on PR #52 review):
+
+      The INNER JOIN below would drop the row if ``to_agent_id``
+      no longer resolves in ``agents`` — making the sender 404 too.
+      That state is unreachable by design: ``Message.to_agent_id``
+      is ``ForeignKey("agents.id", ondelete="SET NULL")`` AND
+      ``nullable=False`` (app/models/message.py:69-74). Postgres
+      cannot ``SET NULL`` on a NOT NULL column, so a DELETE on an
+      Agent that's still referenced by a Message fails with an
+      integrity error. By the time the agent could possibly be
+      hard-deleted, ``worker/message_cleanup`` has already swept
+      the messages, and GET on the absent message returns 404 from
+      the ``Message.id == msg_id`` mismatch — never from the JOIN
+      missing. Soft-delete (``Agent.deleted_at`` non-null) leaves
+      the row intact so the JOIN still resolves; covered by
+      ``test_get_message_when_recipient_agent_soft_deleted``.
     """
-    result = await db.execute(select(Message).where(Message.id == msg_id))
-    msg = result.scalar_one_or_none()
-    if not msg:
+    result = await db.execute(
+        select(Message, Agent.user_id.label("to_owner_id"))
+        .join(Agent, Agent.id == Message.to_agent_id)
+        .where(Message.id == msg_id)
+    )
+    row = result.first()
+    if not row:
         raise _http_error(404, "message_not_found", f"message {msg_id} not found")
-    if str(msg.user_id) != str(user.id):
+    msg, to_owner_id = row
+
+    # Caller is authorized if any of:
+    #   - they sent the message (``Message.user_id == user.id``); covers
+    #     same-tenant + cross-user-as-sender views
+    #   - they own the recipient agent (``to_owner_id == user.id``);
+    #     covers cross-user-as-recipient
+    is_sender = str(msg.user_id) == str(user.id)
+    is_recipient_owner = str(to_owner_id) == str(user.id)
+    if not (is_sender or is_recipient_owner):
         # Don't leak existence — same code as not-found.
         raise _http_error(404, "message_not_found", f"message {msg_id} not found")
     return msg

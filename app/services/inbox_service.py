@@ -38,7 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import AuthenticatedUser
 from app.models import Agent, Message
-from app.services.agent_service import get_agent_owned
+from app.services.agent_service import get_agent_owned, resolve_address
 
 # Default inbox state filter: anything not yet finalized via ack/expire.
 # `failed` is included because the recipient should still see it on poll.
@@ -87,6 +87,7 @@ async def list_inbox(
     states: Optional[str] = None,
     since: Optional[datetime] = None,
     thread_id: Optional[str] = None,
+    counterpart: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     count_only: bool = False,
@@ -101,12 +102,63 @@ async def list_inbox(
 
     `count_only=true` short-circuits to a COUNT query and returns
     `{"count": N}` instead of the message list (R3 dock-demo add).
+
+    `counterpart=<agent_id>` (v1.1.1) filters the result down to
+    messages whose ``from_agent_id`` matches the provided counterpart
+    agent. Used by chat UIs that render a single thread per
+    counterpart and don't want to transfer + filter the whole inbox
+    Dock-side. Resolves slug-form (``agent@user``) just like the
+    primary ``agent_addr``. Backed by ``idx_messages_inbox_counterpart``
+    (migration 024) so the filtered query is a B-tree seek instead of
+    scan-then-filter.
     """
     agent = await get_agent_owned(db, user, agent_addr, include_deleted=True)
     state_tuple = _parse_state_filter(states)
 
+    counterpart_agent: Optional[Agent] = None
+    if counterpart is not None:
+        # ``resolve_address`` does the same opaque-id-or-slug-form lookup
+        # as POST /v1/messages's ``to`` field. It does NOT enforce
+        # ownership — the counterpart agent belongs to whoever the
+        # caller is talking to, not the caller. That's intentional.
+        # Authorization remains gated by AGENT OWNERSHIP on the primary
+        # ``agent`` (the one whose inbox we're reading); the counterpart
+        # is just an additional WHERE clause.
+        counterpart_agent = await resolve_address(db, counterpart)
+
+    # Inbox visibility is gated by AGENT OWNERSHIP, not by Message.user_id.
+    # ``get_agent_owned`` above already enforces ``agent.user_id == user.id``,
+    # so any message addressed to ``agent.id`` is implicitly authorized:
+    # the caller owns the recipient agent, regardless of who sent it.
+    #
+    # Pre-fix this query also filtered ``Message.user_id == user.id``,
+    # which silently dropped cross-user messages because ``Message.user_id``
+    # is the SENDER's user_id (set at insert time by ``create_message``).
+    # That worked accidentally for v1's same-tenant constraint where the
+    # values matched on both sides; it broke when PR-5b added the
+    # WebhookAuthorizationBackend cross-user path because the send route
+    # started accepting messages from a different user, but this read
+    # path mathematically excluded them. Bug surfaced by Dock's
+    # cue.dock.svc deployment, see CHANGELOG entry for messaging-v1.1.0.
+    #
+    # ``Message.user_id`` is retained as the SENDER scope (used by
+    # ``list_sent`` below, the idempotency check in ``create_message``,
+    # and the per-user monthly_message_limit accounting). Inbox-side
+    # access doesn't need it: ``to_agent_id`` plus the agent-ownership
+    # invariant is the right boundary.
+    #
+    # Audit completeness (per CMA review on PR #52, 2026-05-06):
+    # ``rg "Message\.user_id\s*==" app/ worker/`` returns FOUR call
+    # sites total — the two flipped here (this base_filter +
+    # the queued→delivered UPDATE below), plus the two correctly
+    # KEPT in ``message_service``: the idempotency check at
+    # ``create_message`` and the ``list_sent`` filter further down
+    # in this file. ``rg "msg\.user_id"`` returns one extra read in
+    # ``worker/tasks.py:744`` that fetches the SENDER's user record
+    # for push-delivery context (not an auth predicate; correct).
+    # No webhook delivery callback, cue-bus side effect, or audit
+    # log scan uses ``Message.user_id`` as an auth boundary.
     base_filters = [
-        Message.user_id == user.id,
         Message.to_agent_id == agent.id,
         Message.delivery_state.in_(state_tuple),
     ]
@@ -114,25 +166,39 @@ async def list_inbox(
         base_filters.append(Message.created_at > since)
     if thread_id is not None:
         base_filters.append(Message.thread_id == thread_id)
+    if counterpart_agent is not None:
+        base_filters.append(Message.from_agent_id == counterpart_agent.id)
 
     if count_only:
         count_q = select(func.count()).select_from(Message).where(and_(*base_filters))
         count = (await db.execute(count_q)).scalar() or 0
         return {"count": int(count)}
 
-    # Atomic queued→delivered transition: matches msgs that BOTH satisfy
-    # the caller's filters AND are currently in queued. RETURNING ids so
-    # we can compute the post-transition row count without a follow-up
-    # SELECT.
+    # Atomic queued→delivered transition: matches msgs addressed to this
+    # agent (whose ownership is already verified via ``get_agent_owned``)
+    # currently in queued. RETURNING ids so we can compute the
+    # post-transition row count without a follow-up SELECT. Same
+    # ``Message.user_id`` predicate dropped as in base_filters above —
+    # without this drop, cross-user messages stayed queued indefinitely.
+    #
+    # The ``counterpart_agent`` filter is applied here too so that
+    # polling a single counterpart's thread only auto-transitions
+    # *that thread's* queued messages to delivered. Without this, a
+    # poll filtered to counterpart A would still flip B-sourced queued
+    # messages to delivered, which leaks delivery state across
+    # threads. (Pre-v1.1.1 the inbox poll was always full-inbox so
+    # this distinction didn't exist.)
     if "queued" in state_tuple:
         now = datetime.now(timezone.utc)
+        upd_predicates = [
+            Message.to_agent_id == agent.id,
+            Message.delivery_state == "queued",
+        ]
+        if counterpart_agent is not None:
+            upd_predicates.append(Message.from_agent_id == counterpart_agent.id)
         upd_q = (
             update(Message)
-            .where(
-                Message.user_id == user.id,
-                Message.to_agent_id == agent.id,
-                Message.delivery_state == "queued",
-            )
+            .where(*upd_predicates)
             .values(delivery_state="delivered", delivered_at=now)
             .returning(Message.id)
         )
@@ -168,6 +234,7 @@ async def list_sent(
     states: Optional[str] = None,
     since: Optional[datetime] = None,
     thread_id: Optional[str] = None,
+    counterpart: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     count_only: bool = False,
@@ -177,9 +244,21 @@ async def list_sent(
     Default state filter is ``ALL_STATES``: a sender should see their
     full sent history regardless of the recipient's lifecycle stage.
     Filtering to a subset still works via the ``?state=`` query param.
+
+    `counterpart=<agent_id>` (v1.1.1) filters to messages whose
+    ``to_agent_id`` matches the provided counterpart agent — useful
+    for rendering a single thread's outbound side per counterpart.
+    Backed by ``idx_messages_sent_counterpart`` (migration 024).
+    Note that ``Message.user_id == user.id`` is preserved here
+    (unlike the inbox path) because ``list_sent`` is the SENDER view
+    and ``user_id`` is the sender scope — that's the right boundary.
     """
     agent = await get_agent_owned(db, user, agent_addr, include_deleted=True)
     state_tuple = _parse_state_filter(states, default=ALL_STATES)
+
+    counterpart_agent: Optional[Agent] = None
+    if counterpart is not None:
+        counterpart_agent = await resolve_address(db, counterpart)
 
     base_filters = [
         Message.user_id == user.id,
@@ -190,6 +269,8 @@ async def list_sent(
         base_filters.append(Message.created_at > since)
     if thread_id is not None:
         base_filters.append(Message.thread_id == thread_id)
+    if counterpart_agent is not None:
+        base_filters.append(Message.to_agent_id == counterpart_agent.id)
 
     if count_only:
         count_q = select(func.count()).select_from(Message).where(and_(*base_filters))
