@@ -15,6 +15,9 @@
 
 queue_rules:
   - name: dependencies
+    # ``merge_method`` lives on the queue rule (Mergify v2). The deprecated
+    # ``method:`` field on ``actions.queue`` was removed.
+    merge_method: squash
     batch_size: 5
     batch_max_wait_time: 30 m
     merge_conditions:
@@ -36,4 +39,3 @@ pull_request_rules:
     actions:
       queue:
         name: dependencies
-        method: squash
