@@ -369,17 +369,35 @@ async def get_message_for_user(
 ) -> Message:
     """Fetch a message visible to the caller (sender OR recipient).
 
-    v1 same-tenant constraint means both agents are owned by the
-    caller's user_id. ``Message.user_id`` is the sender's user — we
-    expand to also allow the recipient via the to_agent FK if needed.
-    For now, since cross-tenant is blocked at create time, both sides
-    have the same ``user_id``.
+    Visibility rule: a caller sees a message if they own EITHER the
+    ``from_agent`` (sender side) OR the ``to_agent`` (recipient side).
+    ``Message.user_id`` is the SENDER's user — comparing it directly
+    to the caller's user_id only works when sender and recipient share
+    a tenant. With PR-5b's cross-user authorization backend, the
+    sender and recipient can have different user_ids; the recipient
+    must still be able to read messages addressed to their agent.
+
+    Returning 404 for a real-but-inaccessible message keeps existence
+    from leaking across the boundary.
     """
-    result = await db.execute(select(Message).where(Message.id == msg_id))
-    msg = result.scalar_one_or_none()
-    if not msg:
+    result = await db.execute(
+        select(Message, Agent.user_id.label("to_owner_id"))
+        .join(Agent, Agent.id == Message.to_agent_id)
+        .where(Message.id == msg_id)
+    )
+    row = result.first()
+    if not row:
         raise _http_error(404, "message_not_found", f"message {msg_id} not found")
-    if str(msg.user_id) != str(user.id):
+    msg, to_owner_id = row
+
+    # Caller is authorized if any of:
+    #   - they sent the message (``Message.user_id == user.id``); covers
+    #     same-tenant + cross-user-as-sender views
+    #   - they own the recipient agent (``to_owner_id == user.id``);
+    #     covers cross-user-as-recipient
+    is_sender = str(msg.user_id) == str(user.id)
+    is_recipient_owner = str(to_owner_id) == str(user.id)
+    if not (is_sender or is_recipient_owner):
         # Don't leak existence — same code as not-found.
         raise _http_error(404, "message_not_found", f"message {msg_id} not found")
     return msg

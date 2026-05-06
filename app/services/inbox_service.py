@@ -105,8 +105,27 @@ async def list_inbox(
     agent = await get_agent_owned(db, user, agent_addr, include_deleted=True)
     state_tuple = _parse_state_filter(states)
 
+    # Inbox visibility is gated by AGENT OWNERSHIP, not by Message.user_id.
+    # ``get_agent_owned`` above already enforces ``agent.user_id == user.id``,
+    # so any message addressed to ``agent.id`` is implicitly authorized:
+    # the caller owns the recipient agent, regardless of who sent it.
+    #
+    # Pre-fix this query also filtered ``Message.user_id == user.id``,
+    # which silently dropped cross-user messages because ``Message.user_id``
+    # is the SENDER's user_id (set at insert time by ``create_message``).
+    # That worked accidentally for v1's same-tenant constraint where the
+    # values matched on both sides; it broke when PR-5b added the
+    # WebhookAuthorizationBackend cross-user path because the send route
+    # started accepting messages from a different user, but this read
+    # path mathematically excluded them. Bug surfaced by Dock's
+    # cue.dock.svc deployment, see CHANGELOG entry for messaging-v1.1.0.
+    #
+    # ``Message.user_id`` is retained as the SENDER scope (used by
+    # ``list_sent`` below, the idempotency check in ``create_message``,
+    # and the per-user monthly_message_limit accounting). Inbox-side
+    # access doesn't need it: ``to_agent_id`` plus the agent-ownership
+    # invariant is the right boundary.
     base_filters = [
-        Message.user_id == user.id,
         Message.to_agent_id == agent.id,
         Message.delivery_state.in_(state_tuple),
     ]
@@ -120,16 +139,17 @@ async def list_inbox(
         count = (await db.execute(count_q)).scalar() or 0
         return {"count": int(count)}
 
-    # Atomic queued→delivered transition: matches msgs that BOTH satisfy
-    # the caller's filters AND are currently in queued. RETURNING ids so
-    # we can compute the post-transition row count without a follow-up
-    # SELECT.
+    # Atomic queued→delivered transition: matches msgs addressed to this
+    # agent (whose ownership is already verified via ``get_agent_owned``)
+    # currently in queued. RETURNING ids so we can compute the
+    # post-transition row count without a follow-up SELECT. Same
+    # ``Message.user_id`` predicate dropped as in base_filters above —
+    # without this drop, cross-user messages stayed queued indefinitely.
     if "queued" in state_tuple:
         now = datetime.now(timezone.utc)
         upd_q = (
             update(Message)
             .where(
-                Message.user_id == user.id,
                 Message.to_agent_id == agent.id,
                 Message.delivery_state == "queued",
             )
