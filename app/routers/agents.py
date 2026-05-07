@@ -214,6 +214,19 @@ async def get_inbox_endpoint(
     state: Optional[str] = Query(default=None, description="Comma-separated states; default excludes acked/expired"),
     since: Optional[datetime] = Query(default=None),
     thread_id: Optional[str] = Query(default=None),
+    counterpart: Optional[str] = Query(
+        default=None,
+        description=(
+            "v1.1.1: filter to messages from this counterpart agent "
+            "(opaque agent_id or slug-form `agent@user`). Combined with "
+            "the path's `{ref}` agent, this scopes the inbox to a "
+            "single thread between the two participants — useful for "
+            "chat-UI consumers that render per-counterpart drawers and "
+            "would otherwise transfer the whole inbox just to filter "
+            "client-side. Backed by a composite index for B-tree-seek "
+            "performance."
+        ),
+    ),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     count_only: bool = Query(default=False),
@@ -223,6 +236,11 @@ async def get_inbox_endpoint(
     """Recipient view. Atomically transitions queued → delivered for
     surfaced messages. ``count_only=true`` returns ``{count: N}`` for
     inbox-list-badge UX (R3 dock-demo).
+
+    ``counterpart=<agent_id>`` (v1.1.1) filters the result to messages
+    from that counterpart agent only. The atomic queued→delivered
+    UPDATE applies the same filter so polling a single counterpart
+    thread doesn't auto-deliver other threads' queued messages.
     """
     result = await list_inbox(
         db,
@@ -231,6 +249,7 @@ async def get_inbox_endpoint(
         states=state,
         since=since,
         thread_id=thread_id,
+        counterpart=counterpart,
         limit=limit,
         offset=offset,
         count_only=count_only,
@@ -254,13 +273,24 @@ async def get_sent_endpoint(
     state: Optional[str] = Query(default=None),
     since: Optional[datetime] = Query(default=None),
     thread_id: Optional[str] = Query(default=None),
+    counterpart: Optional[str] = Query(
+        default=None,
+        description=(
+            "v1.1.1: filter to messages sent TO this counterpart agent. "
+            "Symmetric to the inbox endpoint's counterpart filter."
+        ),
+    ),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     count_only: bool = Query(default=False),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Sender view. No state mutation."""
+    """Sender view. No state mutation.
+
+    ``counterpart=<agent_id>`` (v1.1.1) filters to messages sent to
+    that counterpart agent only.
+    """
     result = await list_sent(
         db,
         user,
@@ -268,6 +298,7 @@ async def get_sent_endpoint(
         states=state,
         since=since,
         thread_id=thread_id,
+        counterpart=counterpart,
         limit=limit,
         offset=offset,
         count_only=count_only,
