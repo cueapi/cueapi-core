@@ -25,6 +25,14 @@ class Execution(Base):
     last_attempt_at = Column(DateTime(timezone=True))
     claimed_by_worker = Column(String(255), nullable=True)
     claimed_at = Column(DateTime(timezone=True), nullable=True)
+    # Live-claim attestation (migration 024). Set by
+    # ``POST /v1/executions/{id}/live-claim`` when a Live session's
+    # claim-watcher atomically mv's pending → claimed for that exec.
+    # Outcome validator requires this to be non-NULL when a handler
+    # reports ``metadata.executed_via='live'``; missing attestation
+    # is the BG-fabrication signature.
+    live_claim_session_token = Column(String(128), nullable=True)
+    live_claimed_at = Column(DateTime(timezone=True), nullable=True)
     outcome_success = Column(Boolean, nullable=True)
     outcome_result = Column(Text, nullable=True)
     outcome_error = Column(Text, nullable=True)

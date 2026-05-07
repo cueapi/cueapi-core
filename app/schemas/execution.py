@@ -59,3 +59,26 @@ class ClaimResponse(BaseModel):
     claimed: bool
     execution_id: str
     lease_seconds: int
+
+
+class LiveClaimRequest(BaseModel):
+    """Body for ``POST /v1/executions/{id}/live-claim``.
+
+    A Live session's claim-watcher hits this endpoint at atomic-mv
+    time when it wins the claim race; immediately afterwards it POSTs
+    here with the agent's ``session_token`` (an opaque identifier
+    minted at attach time). The server records the attestation on
+    the execution row. The token is stored as-is and not currently
+    validated against an attach-records table — that's a future
+    hardening once the attach-record primitive lands. For now the
+    trust model is "if you have an API key for this user and you
+    POST here, the attestation is yours."
+    """
+
+    session_token: str = Field(..., min_length=8, max_length=128)
+
+
+class LiveClaimResponse(BaseModel):
+    attested: bool
+    execution_id: str
+    live_claimed_at: datetime

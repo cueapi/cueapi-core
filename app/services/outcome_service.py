@@ -15,6 +15,44 @@ from app.schemas.outcome import OutcomeRequest, OutcomeResponse
 logger = logging.getLogger(__name__)
 
 
+def _check_live_claim_attestation_required(*, metadata, execution):
+    """Pure helper: returns the canonical CueAPI error envelope when
+    an outcome reports ``metadata.executed_via='live'`` on an execution
+    that lacks a live-claim attestation; otherwise returns ``None``.
+
+    Parity port of cueapi/cueapi#664. The fabricator-rejection signal:
+    BG-spawn subprocesses (e.g. ``claude --print``) reconstruct context
+    from auto-memory and self-report ``executed_via='live'`` even when
+    the cue actually ran in the background. They can't forge an
+    attestation written by the local claim-watcher; outcomes omitting
+    ``executed_via`` (or reporting non-live) are unaffected.
+
+    Pure-helper extraction so the per-branch logic is unit-testable
+    without going through the FastAPI + ASGI dispatch path — pytest-cov
+    on Python 3.12 doesn't trace those reliably.
+    """
+    if not isinstance(metadata, dict):
+        return None
+    if metadata.get("executed_via") != "live":
+        return None
+    if execution.live_claimed_at is not None:
+        return None
+    return {
+        "error": {
+            "code": "live_claim_unattested",
+            "message": (
+                "Outcome reports metadata.executed_via='live' but "
+                "no live-claim attestation was recorded for this "
+                "execution. The local claim-watcher must POST to "
+                "/v1/executions/{id}/live-claim at atomic-mv time "
+                "before the handler reports a live outcome. Missing "
+                "attestation is the BG-fabrication signature."
+            ),
+            "status": 422,
+        }
+    }
+
+
 async def record_outcome(
     db: AsyncSession, user: AuthenticatedUser, execution_id: str, body: OutcomeRequest
 ) -> dict:
@@ -65,6 +103,18 @@ async def record_outcome(
                 "status": 409,
             }
         }
+
+    # Live-claim attestation gate (parity port of cueapi/cueapi#664).
+    # Reject ``executed_via='live'`` outcomes that don't have a
+    # matching attestation on the execution row. BG-spawn
+    # subprocesses can self-report ``executed_via='live'`` from
+    # auto-memory but can't forge an attestation written by the
+    # local claim-watcher.
+    err = _check_live_claim_attestation_required(
+        metadata=body.metadata, execution=execution
+    )
+    if err is not None:
+        return err
 
     # Validate metadata size (<=10KB JSON)
     if body.metadata is not None:
