@@ -1,6 +1,7 @@
 {
   "manifest_version": 1,
   "description": "Files in cueapi-core that have a same-path counterpart in the private cueapi monorepo. Changes to the private counterpart should be considered for porting here; changes here should be cross-referenced to the private repo. The parity-check GitHub Action posts a soft warning on PRs that touch any of these paths. See HOSTED_ONLY.md for the open-core policy.",
+  "direction_of_truth_note": "Parity is BIDIRECTIONAL — most parity-tracked files flow private → OSS (private leads on hosted product features), but a growing set flow OSS → private (auth primitives, messaging primitives, identity-mapping helpers, and cross-codebase substrate ports where OSS is the canonical home per CWS-2026-05-08 lock). When a parity-tracked file changes, identify direction in the PR description; both directions are equally valid. Examples — OSS-leads / private-lags: `app/auth.py` (X-On-Behalf-Of), counterpart filter on inbox/sent, `app/utils/routing.py` helper, `external_owner` column. Private-leads / OSS-lags: most product features (billing, GDPR, dashboard, Stripe-paid surfaces) — but those don't appear in parity-manifest by virtue of being hosted-only (see oss_only_exclusions + HOSTED_ONLY.md). Special bidirectional case: `agent_live_sessions` schema port — private leads on the table itself (richer schema with cmotigtnx attestation), OSS leads on the documentation surface (`docs/multi-session.md`).",
   "last_full_audit": "2026-05-01",
   "methodology": "Enumerate app/**/*.py and alembic/**/*.py in cueapi-core; include every file whose same-path counterpart exists in the private cueapi clone at audit time. Files that are OSS-only (no private counterpart) are intentionally excluded — modifications to them do not need a parity cross-reference.",
   "oss_only_exclusions": [
@@ -39,6 +40,18 @@
     {
       "path": "worker/message_cleanup.py",
       "reason": "OSS-specific module. Hosted ships these three cleanup functions (expire_old_messages / cleanup_expired_messages / free_old_idempotency_keys) inside worker/gdpr_cleanup.py alongside hosted-only GDPR-cascade tasks and a dry-run-by-default safety harness gated on GDPR_LAST_BACKUP_AT env var. cueapi-core extracts the messaging-specific cleanups to a dedicated module without the GDPR safety harness — self-hosters opt in to real action via an explicit dry_run=False kwarg."
+    },
+    {
+      "path": "alembic/versions/023_messaging_primitive_multi_shell.py",
+      "reason": "OSS-only — slated for hard-cut deprecation in the agent_live_sessions schema convergence (CWS-2026-05-08 P0). Private cueapi never had agent_shells; it has the richer agent_live_sessions table (carries cue_id + task_name + monitor_version + session_token, load-bearing for cmotigtnx Live attestation per CWS-2026-05-08 Item 6). Convergence plan ports private's schema into OSS as the canonical primitive, drops agent_shells. See https://trydock.ai/workspaces/cueapi-agent-live-sessions-port-2026-05-09."
+    },
+    {
+      "path": "app/models/agent_shell.py",
+      "reason": "OSS-only — slated for hard-cut deprecation in the agent_live_sessions schema convergence. See alembic/versions/023_messaging_primitive_multi_shell.py exclusion for full context. Replacement: app/models/agent_live_session.py (will be added as a parity-tracked file when commits 2-5 land)."
+    },
+    {
+      "path": "app/routers/agent_shells.py",
+      "reason": "OSS-only — slated for hard-cut deprecation in the agent_live_sessions schema convergence. See alembic/versions/023_messaging_primitive_multi_shell.py exclusion. Replacement: endpoints under /v1/agents/{ref}/live-sessions/* on a new app/routers/agent_live_sessions.py module (will be added as a parity-tracked file when commits 2-5 land)."
     }
   ],
   "multi_key_scoping_omission": "The private monorepo has multi-key scoping (migration 039: api_keys table + per-resource api_key_id columns + audit log). cueapi-core does not. The messaging primitive port intentionally drops the api_key_id columns from agents and messages tables, the from_api_key_id field from MessageResponse, and the api_key_id field from AgentResponse. The messaging service layer never used api_key_id for business logic — it was an audit-only field. If multi-key scoping is ever ported to OSS, a follow-up migration can ADD COLUMN ... api_key_id at that time without breaking existing deployments.",
