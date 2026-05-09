@@ -66,7 +66,6 @@ from app.services.message_usage_service import (
 from app.utils.ids import generate_message_id
 
 METADATA_MAX_BYTES = 10240  # 10 KB
-MESSAGE_TTL_DAYS = 30
 IDEMPOTENCY_DEDUP_WINDOW_HOURS = 24
 
 
@@ -291,7 +290,7 @@ async def create_message(
     # 7. Generate id; thread_id == self.id for root messages, else inherits.
     msg_id = generate_message_id()
     thread_id = inherited_thread_id or msg_id
-    expires_at = datetime.now(timezone.utc) + timedelta(days=MESSAGE_TTL_DAYS)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.MESSAGE_TTL_DAYS)
 
     msg = Message(
         id=msg_id,
