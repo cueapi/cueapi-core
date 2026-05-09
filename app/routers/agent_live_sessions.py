@@ -467,3 +467,68 @@ async def patch_live_session(
         },
     )
     return LiveSessionEntry(**_to_entry(final_row))
+
+
+# ─── Heartbeat ──────────────────────────────────────────────────────
+
+
+class LiveSessionHeartbeatRequest(BaseModel):
+    monitor_version: Optional[str] = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "Optional Monitor version refresh. Use when the Monitor "
+            "upgrades in-place without detaching + re-registering."
+        ),
+    )
+
+
+@router.post(
+    "/{ref}/live-sessions/{label}/heartbeat",
+    response_model=LiveSessionEntry,
+)
+async def heartbeat_live_session(
+    ref: str,
+    label: str,
+    body: Optional[LiveSessionHeartbeatRequest] = None,
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LiveSessionEntry:
+    """Bump ``last_heartbeat`` on the active session with this label.
+
+    Called every ~60s by the local Monitor to signal liveness. Stale
+    sessions (heartbeat older than the operator-tunable threshold)
+    are skipped by directory render + presence-aware delivery.
+
+    Optionally accepts ``monitor_version`` in the request body for
+    in-place version refresh — e.g., when the Monitor auto-updates
+    without going through a detach + re-register cycle.
+    """
+    agent = await _get_owned_agent(db, user, ref)
+
+    now = datetime.now(timezone.utc)
+    values: dict = {"last_heartbeat": now}
+    if body is not None and body.monitor_version is not None:
+        values["monitor_version"] = body.monitor_version
+
+    stmt = (
+        update(AgentLiveSession)
+        .where(
+            AgentLiveSession.agent_id == agent.id,
+            AgentLiveSession.label == label,
+            AgentLiveSession.detached_at.is_(None),
+        )
+        .values(**values)
+        .returning(AgentLiveSession)
+    )
+    result = await db.execute(stmt)
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise _http_error(
+            404,
+            "live_session_not_found",
+            f"No active session with label {label!r} for agent {ref!r}",
+        )
+    await db.commit()
+    await db.refresh(row)
+    return LiveSessionEntry(**_to_entry(row, now=now))

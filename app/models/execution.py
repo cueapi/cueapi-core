@@ -34,6 +34,14 @@ class Execution(Base):
     outcome_deadline_at = Column(DateTime(timezone=True), nullable=True)
     outcome_state = Column(Text, nullable=True)
     last_heartbeat_at = Column(DateTime(timezone=True), nullable=True)
+    # cmotigtnx Live-attestation columns (migration 027). Set by
+    # ``POST /v1/executions/{id}/live-claim`` when a Live session wins
+    # a claim race; cross-referenced against
+    # ``agent_live_sessions.session_token`` to validate that
+    # ``metadata.executed_via='live'`` outcome reports came from a real
+    # local Live session (vs a bg-spawn confabulating).
+    live_claim_session_token = Column(String(128), nullable=True)
+    live_claimed_at = Column(DateTime(timezone=True), nullable=True)
     triggered_by = Column(String(50), nullable=True)
     evidence_external_id = Column(String(255), nullable=True)
     evidence_result_url = Column(Text, nullable=True)

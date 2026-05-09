@@ -482,3 +482,140 @@ async def append_evidence(
     execution.updated_at = now
     await db.commit()
     return {"execution_id": str(execution_id), "outcome_state": execution.outcome_state, "evidence_updated": True}
+
+
+# ─── Live-claim attestation (cmotigtnx) ─────────────────────────────
+
+
+class LiveClaimRequest(BaseModel):
+    session_token: str
+
+
+class LiveClaimResponse(BaseModel):
+    attested: bool
+    execution_id: str
+    live_claimed_at: datetime
+
+
+@router.post("/{execution_id}/live-claim", response_model=LiveClaimResponse)
+async def live_claim_execution(
+    execution_id: str,
+    body: LiveClaimRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LiveClaimResponse:
+    """Record a Live-claim attestation on an execution.
+
+    The local claim-watcher hits this endpoint at atomic-mv time
+    when a Live session wins the claim race. The server records
+    ``live_claim_session_token`` + ``live_claimed_at`` on the
+    execution row. The outcome validator then requires this
+    attestation to be present when a handler reports
+    ``metadata.executed_via='live'`` — fabricated Live claims
+    (bg-spawn ``claude --print`` subprocesses confabulating from
+    auto-memory) are caught at outcome time because they can't
+    forge an attestation written by the local claim-watcher.
+
+    Write-once semantics: first attestation wins. A repeat call
+    with the SAME ``session_token`` is a 200 idempotent ack.
+    A repeat call with a DIFFERENT token returns 409
+    ``already_attested`` so the second caller knows they didn't
+    win the attestation race.
+    """
+    outcome, payload = await _process_live_claim_request(
+        db=db,
+        user=user,
+        execution_id=execution_id,
+        session_token=body.session_token,
+    )
+    if outcome == "not_found":
+        raise HTTPException(status_code=404, detail=payload)
+    if outcome == "conflict":
+        raise HTTPException(status_code=409, detail=payload)
+    return LiveClaimResponse(**payload)
+
+
+async def _process_live_claim_request(
+    *, db, user, execution_id, session_token: str
+):
+    """Async orchestrator for the live-claim attestation endpoint.
+
+    Owns the row lookup, classification, and write-on-fresh + commit.
+    Returns ``(outcome, payload)`` where outcome is one of
+    ``"not_found" | "idempotent" | "conflict" | "fresh"`` and payload
+    is ready to pass into either ``HTTPException(detail=...)`` or
+    ``LiveClaimResponse(**...)``.
+
+    Extracted from the endpoint so the per-branch logic + DB I/O is
+    unit-testable via direct call (bypasses FastAPI/Starlette ASGI
+    dispatch, which pytest-cov on Python 3.12 doesn't trace cleanly).
+    """
+    result = await db.execute(
+        select(Execution)
+        .join(Cue, Execution.cue_id == Cue.id)
+        .where(Execution.id == execution_id, Cue.user_id == user.id)
+    )
+    execution = result.scalar_one_or_none()
+    if not execution:
+        return ("not_found", {
+            "error": {
+                "code": "execution_not_found",
+                "message": "Execution not found",
+                "status": 404,
+            }
+        })
+    now = datetime.now(timezone.utc)
+    outcome, payload = _resolve_live_claim_attestation(
+        execution=execution,
+        session_token=session_token,
+        now=now,
+    )
+    if outcome == "fresh":
+        await db.commit()
+    return (outcome, payload)
+
+
+def _resolve_live_claim_attestation(
+    *, execution, session_token: str, now: datetime
+):
+    """Pure helper: classify a live-claim attestation request and
+    prepare the response payload.
+
+    Returns ``(outcome, payload)`` where outcome is one of:
+
+    * ``"idempotent"`` — same session_token is repeating an attestation
+      that already exists on this execution. Caller returns 200 with
+      the existing ``live_claimed_at``.
+    * ``"conflict"`` — a *different* session_token was already attested.
+      Caller raises 409 with the canonical CueAPI error envelope.
+    * ``"fresh"`` — no prior attestation. The helper has set
+      ``live_claim_session_token`` + ``live_claimed_at`` on
+      ``execution`` (mutates in place). Caller commits the session.
+
+    Pure-function shape so the per-branch logic is unit-testable
+    without going through FastAPI + ASGI dispatch.
+    """
+    if execution.live_claimed_at is not None:
+        if execution.live_claim_session_token == session_token:
+            return ("idempotent", {
+                "attested": True,
+                "execution_id": str(execution.id),
+                "live_claimed_at": execution.live_claimed_at,
+            })
+        return ("conflict", {
+            "error": {
+                "code": "already_attested",
+                "message": (
+                    "Execution already has a live-claim attestation "
+                    "from a different session token"
+                ),
+                "status": 409,
+            }
+        })
+    execution.live_claim_session_token = session_token
+    execution.live_claimed_at = now
+    return ("fresh", {
+        "attested": True,
+        "execution_id": str(execution.id),
+        "live_claimed_at": now,
+    })
