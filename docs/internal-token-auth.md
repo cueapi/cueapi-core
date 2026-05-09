@@ -77,22 +77,104 @@ The token is compared with `hmac.compare_digest` to defend against timing-based 
 
 Path 2 callers must reference a User UUID via `X-On-Behalf-Of`. The substrate verifies that User row exists. If it doesn't, the request fails 404 — so the integrator must **upsert** the User row first.
 
-Use the internal upsert endpoint:
+The canonical endpoint for that upsert is `PUT /v1/internal/users/{user-uuid}`. This is the only sanctioned way for an integrator to mint or update User rows in cueapi-core; the standard `POST /v1/auth/register` flow (Path 1) is independent and produces self-mint Users that aren't backed by an external identity system.
 
+### Endpoint reference
+
+```http
+PUT /v1/internal/users/{user-uuid} HTTP/1.1
+Authorization: Bearer <INTERNAL_AUTH_TOKEN>
+Content-Type: application/json
 ```
-PUT /v1/internal/users/{user-uuid}
+
+| Field | Type | Required | Default (on insert) | Notes |
+|---|---|---|---|---|
+| `email` | string | yes | — | Validated as RFC-5322 email. Updatable on subsequent calls. |
+| `slug` | string | yes | — | Regex: `^[a-z0-9][a-z0-9-]*[a-z0-9]$` (or single character). 1–64 chars. Used in slug-form addressing (`agent@<slug>`). Updatable on subsequent calls. |
+| `plan` | string | no | `"free"` | Free-form plan label (consumer-defined; substrate doesn't validate values). |
+| `active_cue_limit` | int ≥ 0 | no | 10 | |
+| `monthly_execution_limit` | int ≥ 0 | no | 300 | |
+| `monthly_message_limit` | int ≥ 0 | no | 300 | |
+| `rate_limit_per_minute` | int ≥ 0 | no | 60 | Per-User rate limit applied at the request middleware. |
+| `external_owner` | string ≤ 64 chars | no | `null` | Audit-only attribution tag (e.g. `"dock"`, `"obs"`, `"cd"`). Records which integrator minted the User row. Substrate treats as opaque. See [`agents-and-metadata.md`](agents-and-metadata.md) for the broader namespacing convention. |
+
+### Response
+
+```json
+{
+  "id": "5b2e7c3a-9d11-4a8f-b6e2-9c4d3f1a8b7c",
+  "email": "user@integrator.example",
+  "slug": "integrator-user-slug",
+  "plan": "free",
+  "active_cue_limit": 10,
+  "monthly_execution_limit": 300,
+  "monthly_message_limit": 300,
+  "rate_limit_per_minute": 60,
+  "created": true
+}
+```
+
+The `created` flag is the only field that varies based on the operation:
+
+- `created: true` — a new row was inserted on this call.
+- `created: false` — an existing row was updated (or matched the request exactly — no-op).
+
+Integrators that need to detect "first-time User mint" (e.g. for welcome-email triggers) can branch on this field. Otherwise it can be ignored.
+
+### Insert vs update semantics
+
+The endpoint is idempotent. Calling it repeatedly is safe.
+
+**On insert** (no row exists for the UUID): all required fields are written; optional fields not in the request body fall back to defaults from the table above.
+
+**On update** (row exists): each field is omit-preserves-prior. Including a field with a value updates that field; omitting the field leaves the existing value untouched. There is no way to "clear" a field back to its default via this endpoint — issue a follow-up call with the explicit value if needed. (`null` in the body is interpreted as "no override," not "clear to null," for the optional fields.)
+
+`email` and `slug` are required on every call. To "rename" a User's slug or change their email, simply issue a PUT with the new values; the existing row is updated in place.
+
+### Generated stub API key
+
+Newly-minted User rows include a stub `api_key_hash` (the column is `NOT NULL` for Path 1 compatibility), but the plaintext key is **never returned** via this endpoint. Path 2 callers don't need it.
+
+If the integrator later wants this User to have a usable Path 1 API key (e.g. to give them a CLI handoff), they can:
+
+1. Issue `POST /v1/auth/key/regenerate` to mint a fresh key + retire the stub. The new plaintext is returned once.
+2. Hand the plaintext key to the end-user out-of-band.
+
+This is a one-way transition: the User row is now usable on both paths until the next regenerate.
+
+### Idempotency
+
+Idempotent — calling with the same UUID + body is a no-op (returns the existing row, `created: false`). Required exactly once per User before issuing Path 2 requests against that UUID; subsequent message/agent operations don't re-call.
+
+For consumers building automation (e.g. nightly user-sync from an external IDP), it is safe to bulk-PUT all known Users on every sync — only changed rows produce visible state changes.
+
+### Error responses (endpoint-specific)
+
+| Code | Status | Cause |
+|---|---|---|
+| `invalid_internal_token` | 401 | Missing or invalid `Authorization: Bearer ...` header — token didn't match `INTERNAL_AUTH_TOKEN`. |
+| `invalid_user_id` | 400 | Path parameter `{user-uuid}` isn't parseable as a UUID. |
+| `validation_error` | 422 | Request body validation failed (e.g. invalid email format, slug doesn't match regex, integer field below 0, `external_owner` over 64 chars). |
+
+For the broader Path 2 error surface (header validation, missing User refs, etc.), see [Path 2 error responses](#path-2-error-responses) below.
+
+### Cross-product attribution example
+
+A multi-product integrator can use `external_owner` to distinguish which product minted each User:
+
+```http
+PUT /v1/internal/users/abcd1234-... HTTP/1.1
 Authorization: Bearer <INTERNAL_AUTH_TOKEN>
 Content-Type: application/json
 
 {
-  "email": "user@integrator.example",
-  "slug": "integrator-user-slug"
+  "email": "alice@dock.example",
+  "slug": "alice",
+  "external_owner": "dock"
 }
 ```
 
-Idempotent — calling repeatedly with the same UUID + body is a no-op (returns the existing row). Required exactly once per User the integrator wants to act on behalf of; subsequent message/agent operations under Path 2 don't re-call this endpoint.
-
-Generated User rows have a stub API key (NOT NULL constraint satisfaction) but it is never returned via this endpoint — Path 2 callers don't need it. If the integrator ever wants the User to have a usable Path 1 API key, regenerate via `POST /v1/auth/key/regenerate` after the upsert.
+Operators can then audit who minted what via direct DB query (`SELECT id, email, slug, external_owner FROM users WHERE external_owner = 'dock'`). The field is not currently exposed in user-facing API responses; surface for operator-tooling only.
 
 ## Wire format reference
 
