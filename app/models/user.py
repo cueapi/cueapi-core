@@ -33,5 +33,16 @@ class User(Base):
     # lazily on first ``GET /v1/auth/alert-webhook-secret`` and rotatable
     # via ``POST /v1/auth/alert-webhook-secret/regenerate``.
     alert_webhook_secret = Column(String(64), nullable=True)
+    # Optional consumer-attribution metadata. Records which integrator
+    # minted this User row (e.g. ``"dock"``, ``"observability-tool-x"``).
+    # Set on PUT /v1/internal/users/{id} via the ``external_owner`` body
+    # field; never returned in user-facing surfaces (audit-only). NULL
+    # for self-mint via /v1/auth/register.
+    #
+    # OSS port note: private cueapi has multi-key scoping and stamps
+    # this on the api_keys table instead. cueapi-core is single-key
+    # by design (see HOSTED_ONLY.md), so attribution lives at the
+    # User level — same concept, different schema shape.
+    external_owner = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
