@@ -33,7 +33,7 @@ X-On-Behalf-Of: <user-uuid>
 
 This is the path that:
 
-- Server-side integrator backends use when proxying multiple end-users to the substrate (Dock's `mirrorAgentToCue`, an enterprise app server forwarding employee actions, etc.).
+- Server-side integrator backends use when proxying multiple end-users to the substrate (Dock's full integration — `mirrorAgentToCue` and every dock-live message hop — runs through Path 2; an enterprise app server forwarding employee actions; etc.).
 - Multi-tenant deployments use when the integrator has its own user database and wants to map external users to cueapi User rows on demand.
 
 Path 2 is **opt-in**. If `EXTERNAL_AUTH_BACKEND` is unset or `INTERNAL_AUTH_TOKEN` is empty, Path 2 is unreachable — every request falls through to Path 1.
@@ -48,9 +48,11 @@ Path 2 is **opt-in**. If `EXTERNAL_AUTH_BACKEND` is unset or `INTERNAL_AUTH_TOKE
 | Multi-user product proxying messages to the substrate | Path 2 |
 | Integrator with its own user-store + permission model | Path 2 |
 | Per-request "who is this for" attribution needed | Path 2 |
-| Mixed: backend uses Path 2, client daemons use Path 1 (Dock pattern) | Both |
+| Mixed: backend uses Path 2 directly, separate per-User daemons use Path 1 | Both |
 
-It's common for a single deployment to use **both paths simultaneously**. Dock, for example, uses Path 2 for its server-side message creation (`mirrorAgentToCue` posting to `/v1/agents` on behalf of any Dock-User) and Path 1 for its `dock-live` daemon that polls a single User's inbox per machine. The substrate accepts either; the choice is per-request.
+A single deployment can use **both paths simultaneously**. Whether to mix depends on whether per-User daemons exist and authenticate to cueapi-core directly with their own `cue_sk_...` keys, or whether all calls (including those originating from per-User daemons) flow through the integrator backend. The substrate accepts either; the choice is per-request.
+
+> **Path 2 only, end-to-end (Dock's setup).** Dock is a Path 2 consumer at every hop: end-user, dock-live daemon, and dock-app-server all reach cueapi-core through Dock's app server with `INTERNAL_AUTH_TOKEN` + `X-On-Behalf-Of`. The dock-live daemon polls **Dock's** `/api/dock-connect/inbox` with a Dock-issued `dk_*` Bearer token; that token never reaches cueapi-core. Dock's app server then proxies to cueapi-core via Path 2. See [Pattern A](#pattern-a--server-side-proxy-dock-shape) for the canonical reference.
 
 ## Configuration
 
@@ -136,7 +138,7 @@ Path 2 trades request-level authentication for service-level trust. The integrat
 
 ### Pattern A — server-side proxy (Dock-shape)
 
-The integrator runs a backend service. End-users authenticate to the backend (OAuth / session tokens / whatever). The backend proxies a subset of cueapi operations to cueapi-core using Path 2.
+The integrator runs a backend service. End-users authenticate to the backend (OAuth / session tokens / whatever). The backend proxies all cueapi operations to cueapi-core using Path 2.
 
 ```
 end-user → integrator backend → cueapi-core
@@ -146,28 +148,38 @@ end-user → integrator backend → cueapi-core
 
 Best for: chat products, workspace tools, multi-tenant SaaS where the integrator owns the user-database and identity model.
 
-### Pattern B — daemon-style poller (dock-live-shape)
+This is the **complete shape** for Dock — end-to-end Path 2, including their per-User daemon (`dock-live`). The daemon polls Dock's own `/api/dock-connect/*` endpoints (not cueapi-core directly) with a Dock-issued `dk_*` Bearer token. Dock's app server then proxies to cueapi-core with `INTERNAL_AUTH_TOKEN` + `X-On-Behalf-Of`. The `dk_*` token never reaches cueapi-core. Reference implementation in `dock-app/src/app/api/dock-connect/`:
 
-Same end-user, on their own machine, runs a long-running daemon (Go binary, Python script, etc.) that polls the substrate directly using a per-User Path 1 key.
+- `inbox/route.ts:209` — inbox polling proxy
+- `shells/route.ts:115` — agent shell registration proxy
+- `shells/[shellId]/heartbeat/route.ts:93` — heartbeat proxy
+- `ack/route.ts:83` — message acknowledgment proxy
+
+Each authenticates the caller via Dock's session/key, looks up Dock agent → mirrored cueapi identity, then proxies to cueapi-core via Path 2.
+
+### Pattern B — daemon-style poller (Path 1 direct)
+
+A long-running daemon (Go binary, Python script, etc.) polls cueapi-core directly using a per-User Path 1 key. The daemon runs on the User's own machine; the API key was issued to that User and is treated as a machine credential.
 
 ```
 daemon-on-user-machine → cueapi-core
    (cue_sk_... per User)
 ```
 
-Best for: per-machine push delivery, presence tracking, single-User scope. Avoids server-side proxy hop on the polling path.
+Best for: per-machine push delivery, presence tracking, single-User scope. Avoids any server-side proxy hop. The CueAPI Desktop bundled-app daemon and the open-source `cueapi-worker` package are reference consumers of this pattern. (Dock's `dock-live` daemon uses a similar shape *to Dock's own server*, but it is NOT a Path 1 consumer of cueapi-core — see Pattern A.)
 
-### Pattern C — hybrid (Dock's actual setup)
+### Pattern C — hybrid (mixed Path 1 + Path 2)
 
-Most production integrators use both. Server-side actions (creating agents, sending on behalf of users) flow through Path 2; per-machine daemons use Path 1.
+A deployment can mix paths if it has both a backend integrator surface AND per-User daemons that authenticate to cueapi-core directly with their own keys. Server-side actions (creating agents, sending on behalf of users from a backend) flow through Path 2; per-machine daemons that own a `cue_sk_...` key use Path 1.
 
 ```
 end-user → integrator backend → cueapi-core   (Path 2, server-mediated writes)
-       ↓
+
 daemon-on-user-machine        → cueapi-core   (Path 1, direct polling)
+   (cue_sk_... per User)
 ```
 
-The substrate accepts either; integrators pick based on the call's direction and where authn lives.
+The substrate accepts either; integrators pick based on the call's direction and where authn lives. **Note:** Dock is NOT a Pattern C consumer despite running both a backend and a daemon — Dock's daemon talks to Dock's app server, not cueapi-core directly. For a true hybrid, the daemon must hold a cueapi-core key.
 
 ## Common pitfalls
 
