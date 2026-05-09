@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     # Messaging push delivery: how long a "delivering" message can sit
     # before stale-recovery transitions it back to retry_ready.
     MESSAGE_DELIVERY_STALE_AFTER_SECONDS: int = 300
+    # Messaging TTL: how many days a queued message stays visible before
+    # the cleanup task moves it to ``expired``. Self-hosters can tune
+    # this for archival vs retention semantics — short TTL (e.g. 7d)
+    # for chatty agent-to-agent traffic where a missed message is
+    # genuinely dead; longer TTL (e.g. 90d) for human-in-the-loop UX
+    # where users may step away. Per CWS-2026-05-08 Item 4 lock.
+    MESSAGE_TTL_DAYS: int = 30
     BASE_URL: str = "http://localhost:8000"
     ALLOW_REGISTER: bool = True
     RESEND_API_KEY: str = ""
