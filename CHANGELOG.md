@@ -4,6 +4,25 @@ All notable changes to cueapi-core will be documented here.
 
 ## [Unreleased]
 
+### Upcoming breaking change — `agent_shells` → `agent_live_sessions` schema convergence (announced 2026-05-09)
+
+cueapi-core's `agent_shells` table (introduced in migration `023_messaging_primitive_multi_shell.py`) will be **hard-cut deprecated** in an upcoming PR. The replacement is `agent_live_sessions` — a richer schema ported from the private monorepo that carries `cue_id`, `task_name`, `monitor_version`, and `session_token` columns. The new schema is load-bearing for cmotigtnx Live-attestation and the `cueapi-presence-runtime` package.
+
+**Why hard-cut:** OSS is currently pre-1.0 (v0.2.x) and explicitly allows breaking changes. No production consumer of `agent_shells` exists today; cue-mac-app's wire-through commits never pushed, and Dock's daemon polls `/v1/agents/{ref}/inbox` rather than any `/shells` endpoint. Maintaining `agent_shells` as a deprecated alias would create double-maintenance risk plus a stale-sync surface for zero benefit.
+
+**What changes:**
+
+- `agent_shells` table dropped; `agent_live_sessions` table created in the same alembic head (DDL-in-transaction).
+- Endpoints move from `/v1/agents/{ref}/shells/*` to `/v1/agents/{ref}/live-sessions/*` plus a new `POST /v1/executions/{id}/live-claim` for Monitor-side cmotigtnx attestation.
+- `webhook_url` and `webhook_secret` fields **dropped** from the new schema. Per substrate-stays-narrow doctrine and YAGNI: per-session webhook delivery is not implemented today; pre-adding columns creates implicit API surface that's costly to change later. If/when fan-out delivery becomes a real ask, both columns can be added back additively in a follow-up migration.
+- `app/models/agent_shell.py` and `app/routers/agent_shells.py` deleted; replaced by `app/models/agent_live_session.py` and `app/routers/agent_live_sessions.py`.
+
+**Migration safety:** The DROP-then-CREATE sequence runs in a single transaction within one alembic head. Postgres supports DDL-in-transaction, so the brief between-state is not observable to readers. OSS does not run rolling deploys (single-instance Railway pattern); coupling DROP and CREATE in one head is the right shape.
+
+**For consumers:** if you have downstream code targeting `agent_shells` endpoints today, your branch will break on the next pull from main. Re-target to `/v1/agents/{ref}/live-sessions/*` after the convergence PR merges. Schema-shape diff is documented at https://trydock.ai/workspaces/cueapi-agent-live-sessions-port-2026-05-09.
+
+**Tracking:** CWS-2026-05-08 P0 schema convergence lock; design note posted 2026-05-08; substrate review CONCUR 2026-05-09.
+
 ### Fixed (messaging-v1.1.0 — 2026-05-06)
 
 - **Cross-user messages now appear in the recipient's inbox.** Pre-fix,
