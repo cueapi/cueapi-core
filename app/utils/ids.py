@@ -38,9 +38,3 @@ def generate_message_id() -> str:
     suffix = "".join(secrets.choice(chars) for _ in range(12))
     return f"msg_{suffix}"
 
-
-def generate_agent_shell_id() -> str:
-    """Format ``ash_<12 alphanumeric>`` for multi-shell registrations (PR-5a)."""
-    chars = string.ascii_lowercase + string.digits
-    suffix = "".join(secrets.choice(chars) for _ in range(12))
-    return f"ash_{suffix}"
