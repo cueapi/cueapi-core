@@ -60,6 +60,39 @@ labels:
   - "traefik.http.services.cueapi.loadbalancer.server.port=8000"
 ```
 
+## Sizing & cold-start considerations
+
+CueAPI is fine on small hardware for low-volume deployments — the substrate is async + the hot path is single-digit-millisecond. But if you deploy on a tier with cold-start (Fly.io shared-cpu-1x, idle Railway instances, AWS Lambda-style scale-to-zero), the **first request after idle** can stall for several seconds. Plan caller timeouts accordingly.
+
+### Observed cold-start (reference: Dock production)
+
+Dock runs cueapi-core vendored on Fly.io `shared-cpu-1x:512MB`, single machine. Observations:
+
+- **Idle-to-first-request latency: 3-5 seconds** when the machine has been idle long enough to spin down. This is Fly's machine restart, not cueapi-core's startup — once awake, hot-path latency is normal.
+- **Caller timeout originally 1500ms** (their default). After observing first-poll timeouts on drawer-open under cold-start, **raised to 6000ms minimum**. This now consistently absorbs the cold-start window.
+
+### Recommendations for low-tier deployments
+
+1. **Budget caller timeouts at 6000ms minimum** if your tier has cold-start. SDK consumers (`cueapi-sdk`, `cueapi-cli`, `cueapi-mcp`, third-party HTTP clients) should configure their HTTP timeout accordingly. The default in `httpx` (5 seconds) is borderline — bump to 10s if you can.
+2. **Keep the deployment warm** if cold-start hurts UX. Two patterns work:
+   - **Min-machines: 2.** Run at least 2 instances. Most platforms (Fly, Railway, Render) won't spin both down at once. Latency is consistent at the cost of base running cost.
+   - **External warm-pinger.** A cron-style job (GitHub Actions on a schedule, an upstream `cueapi monitor attach`-style daemon, or a separate uptime monitor) hits `GET /health` every 60-90 seconds. Costs less than min-machines: 2 but adds an external dependency.
+3. **Document the cold-start budget in your client SDK / CLI / app** so end-users don't see surprising 5-second pauses. Surface "first request" UX states (loading skeletons, "warming up..." labels) when applicable.
+
+### Sizing for higher tiers
+
+For dedicated CPU + always-on deployments (Fly `dedicated-cpu-1x` or larger, Railway scaled-up plans, EKS/GKE):
+
+- **2 vCPU + 1GB RAM** comfortably handles ~1000 cues/min + ~500 webhook deliveries/min on a single instance. The poller is the bottleneck; scale the poller process before the API process.
+- **PostgreSQL**: 2GB RAM minimum, 4GB+ recommended. Indexes are partial + the hot tables (`cues`, `executions`, `messages`) are partition-friendly if you grow into millions of rows.
+- **Redis**: 256MB sufficient for low-volume; 1GB+ for high-volume to avoid eviction pressure on the outbox. AOF persistence MUST stay on.
+
+Scale horizontally (add API/worker/poller replicas) before scaling vertically — the substrate is designed for shared-nothing horizontal scaling.
+
+### Health-check configuration on low-tier
+
+If you're using `GET /health` (covered below) on a low-tier deployment, configure your orchestrator to use **5-second initial-delay + 10-second interval** so the cold-start doesn't trigger spurious failure markers on first deploy.
+
 ## Health checks
 
 CueAPI exposes two health endpoints:
