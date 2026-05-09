@@ -58,7 +58,7 @@ import json
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Iterable, Optional
 
 import httpx
 
@@ -110,6 +110,122 @@ class SameTenantAuthorizationBackend(AuthorizationBackend):
         idempotency_key: Optional[str] = None,
     ) -> bool:
         return str(sender_user_id) == str(recipient_user_id)
+
+
+class EveryoneAuthorizationBackend(AuthorizationBackend):
+    """Reference backend that allows every authenticated send.
+
+    Use only in trusted single-tenant environments where authentication
+    itself is the access control. Authentication being correct is
+    necessary but not sufficient — without authorization, any compromised
+    key can message any agent. **Do not use on a public deployment.**
+
+    Importable: ``from app.services.authorization_backend import EveryoneAuthorizationBackend``.
+    Activate via ``AUTHORIZATION_BACKEND=app.services.authorization_backend:EveryoneAuthorizationBackend``.
+    """
+
+    async def authorize_message(
+        self,
+        *,
+        sender_user_id: str,
+        recipient_user_id: str,
+        sender_agent_id: str,
+        recipient_agent_id: str,
+        message_kind: str = "message",
+        idempotency_key: Optional[str] = None,
+    ) -> bool:
+        return True
+
+
+class AllowlistAuthorizationBackend(AuthorizationBackend):
+    """Reference backend that authorizes a static (sender_user, recipient_user) allowlist.
+
+    Same-user sends are always allowed. Cross-user sends are allowed only
+    when the directed pair ``(sender_user_id, recipient_user_id)`` appears
+    in the configured allowlist.
+
+    Allowlist is parsed from ``AUTHZ_ALLOWLIST`` env var when constructed
+    with no arguments (the resolution path used by the
+    ``AUTHORIZATION_BACKEND`` env var). Format is comma-separated directed
+    pairs, each pair joined with ``:``::
+
+        AUTHZ_ALLOWLIST=user-a-uuid:user-b-uuid,user-c-uuid:user-d-uuid
+
+    Pairs are directional. To allow bidirectional messaging between A and
+    B, configure both ``A:B`` and ``B:A``.
+
+    Self-hosters that prefer in-process Python configuration can subclass
+    or instantiate directly with ``allowed_pairs``::
+
+        from app.services.authorization_backend import AllowlistAuthorizationBackend
+
+        backend = AllowlistAuthorizationBackend(
+            allowed_pairs={("user-a-uuid", "user-b-uuid")},
+        )
+
+    Suitable for small, slow-changing pair-wise relationships
+    (system-to-system bridges, controlled multi-tenant pilots).
+
+    Importable: ``from app.services.authorization_backend import AllowlistAuthorizationBackend``.
+    Activate via ``AUTHORIZATION_BACKEND=app.services.authorization_backend:AllowlistAuthorizationBackend``
+    plus ``AUTHZ_ALLOWLIST=...`` for the env-driven config path.
+    """
+
+    def __init__(self, allowed_pairs: Optional["Iterable[tuple[str, str]]"] = None):
+        if allowed_pairs is None:
+            allowed_pairs = self._parse_env_allowlist(settings.AUTHZ_ALLOWLIST)
+        self._allowed: frozenset[tuple[str, str]] = frozenset(
+            (str(s), str(r)) for s, r in allowed_pairs
+        )
+
+    @staticmethod
+    def _parse_env_allowlist(raw: str) -> "list[tuple[str, str]]":
+        """Parse ``AUTHZ_ALLOWLIST`` env var into a list of directed pairs.
+
+        Format: ``"sender:recipient,sender:recipient,..."``. Whitespace
+        around tokens is stripped. Empty string returns an empty list.
+        Malformed entries (missing colon, empty halves) are silently
+        dropped with a warning log so a typo can't lock out the
+        substrate by raising at module import time.
+        """
+        if not raw:
+            return []
+        pairs: list[tuple[str, str]] = []
+        for entry in raw.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            if ":" not in entry:
+                logger.warning(
+                    "AUTHZ_ALLOWLIST entry missing ':' separator; skipping",
+                    extra={"event_type": "authz_allowlist_malformed_entry", "entry_len": len(entry)},
+                )
+                continue
+            sender, _, recipient = entry.partition(":")
+            sender = sender.strip()
+            recipient = recipient.strip()
+            if not sender or not recipient:
+                logger.warning(
+                    "AUTHZ_ALLOWLIST entry has empty half; skipping",
+                    extra={"event_type": "authz_allowlist_empty_half"},
+                )
+                continue
+            pairs.append((sender, recipient))
+        return pairs
+
+    async def authorize_message(
+        self,
+        *,
+        sender_user_id: str,
+        recipient_user_id: str,
+        sender_agent_id: str,
+        recipient_agent_id: str,
+        message_kind: str = "message",
+        idempotency_key: Optional[str] = None,
+    ) -> bool:
+        if str(sender_user_id) == str(recipient_user_id):
+            return True
+        return (str(sender_user_id), str(recipient_user_id)) in self._allowed
 
 
 class WebhookAuthorizationBackend(AuthorizationBackend):

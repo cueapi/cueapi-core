@@ -87,6 +87,16 @@ class Settings(BaseSettings):
     AUTHZ_HOOK_URL: str = ""
     AUTHZ_HOOK_SECRET: str = ""
 
+    # ``AllowlistAuthorizationBackend`` (importable reference backend)
+    # reads its directed allowed pairs from this env var when
+    # constructed with no arguments — the path used by
+    # ``AUTHORIZATION_BACKEND=app.services.authorization_backend:AllowlistAuthorizationBackend``.
+    # Format: comma-separated ``sender:recipient`` pairs, e.g.
+    # ``"user-a-uuid:user-b-uuid,user-c-uuid:user-d-uuid"``. Pairs are
+    # directional — to allow bidirectional, configure both halves.
+    # Empty / unset = no cross-user pairs allowed (only same-user sends).
+    AUTHZ_ALLOWLIST: str = ""
+
     # ─── Dock-readiness packaging knobs (PR-5d) ─────────────────────
     #
     # Self-host integrators (Dock first; future others) often want to
