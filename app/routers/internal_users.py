@@ -63,6 +63,11 @@ class UserUpsertRequest(BaseModel):
     monthly_execution_limit: Optional[int] = Field(None, ge=0)
     monthly_message_limit: Optional[int] = Field(None, ge=0)
     rate_limit_per_minute: Optional[int] = Field(None, ge=0)
+    # Optional consumer-attribution audit field. Integrators may stamp
+    # a short tag (e.g. "dock", "obs", "cd") to record which integrator
+    # minted this User row. Substrate treats as opaque — never used as
+    # an auth predicate or business logic input. NULL acceptable.
+    external_owner: Optional[str] = Field(None, max_length=64)
 
 
 class UserUpsertResponse(BaseModel):
@@ -139,6 +144,7 @@ async def upsert_user(
                 monthly_execution_limit=body.monthly_execution_limit if body.monthly_execution_limit is not None else 300,
                 monthly_message_limit=body.monthly_message_limit if body.monthly_message_limit is not None else 300,
                 rate_limit_per_minute=body.rate_limit_per_minute if body.rate_limit_per_minute is not None else 60,
+                external_owner=body.external_owner,
             )
             db.add(user)
         else:
@@ -156,6 +162,8 @@ async def upsert_user(
                 user.monthly_message_limit = body.monthly_message_limit
             if body.rate_limit_per_minute is not None:
                 user.rate_limit_per_minute = body.rate_limit_per_minute
+            if body.external_owner is not None:
+                user.external_owner = body.external_owner
 
         await db.commit()
         await db.refresh(user)
