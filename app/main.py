@@ -11,7 +11,7 @@ from app.middleware.body_limit import BodySizeLimitMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.request_id import RequestIdMiddleware
 from app.redis import close_redis
-from app.routers import agent_shells, agents, alerts, auth_routes, cues, device_code, echo, executions, health, internal_users, messages, usage, webhook_secret, workers
+from app.routers import agent_shells, agents, alerts, auth_routes, cues, device_code, echo, executions, health, info, internal_users, messages, usage, webhook_secret, workers
 from app.utils.logging import setup_logging
 
 
@@ -164,6 +164,7 @@ async def generic_error_handler(request: Request, exc: Exception):
 # the deployment is full / messaging-only / cron-only.
 
 app.include_router(health.router)
+app.include_router(info.router)
 app.include_router(auth_routes.router)
 app.include_router(usage.router)
 app.include_router(echo.router)

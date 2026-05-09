@@ -19,7 +19,7 @@ from app.utils.ids import hash_api_key
 logger = logging.getLogger(__name__)
 
 # Paths exempt from rate limiting (exact match)
-EXEMPT_PATHS = {"/health", "/status", "/docs", "/openapi.json", "/redoc", "/v1/billing/webhook", "/auth/device", "/v1/auth/verify", "/v1/internal/deploy-hook"}
+EXEMPT_PATHS = {"/health", "/status", "/v1/info", "/docs", "/openapi.json", "/redoc", "/v1/billing/webhook", "/auth/device", "/v1/auth/verify", "/v1/internal/deploy-hook"}
 # Path prefixes exempt from rate limiting (startswith match)
 EXEMPT_PREFIXES = ("/v1/blog/", "/v1/internal/")
 
