@@ -39,10 +39,18 @@ from typing import Optional
 DELIVERY_ROUTE_LIVE = "live"
 DELIVERY_ROUTE_BACKGROUND_FALLBACK = "background_fallback"
 DELIVERY_ROUTE_BACKGROUND_DIRECT = "background_direct"
+# v0.2.x — Live-Monitor claimed the cue but the cmotigtnx attestation
+# POST to /v1/executions/{id}/live-claim failed (network blip / timeout
+# / server unavailable). Reported via outcome metadata so consumers can
+# distinguish "Monitor did claim, just couldn't attest" from a true
+# BG-fallback (which would be ``background_fallback``). Cross-codebase
+# paired with private cueapi's enum (CWS-2026-05-08 Item 6 lock).
+DELIVERY_ROUTE_LIVE_UNVERIFIED = "live_unverified"
 
 DELIVERY_ROUTE_VALUES = frozenset(
     {
         DELIVERY_ROUTE_LIVE,
+        DELIVERY_ROUTE_LIVE_UNVERIFIED,
         DELIVERY_ROUTE_BACKGROUND_FALLBACK,
         DELIVERY_ROUTE_BACKGROUND_DIRECT,
     }

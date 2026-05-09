@@ -18,6 +18,7 @@ from app.utils.routing import (
     DELIVERY_ROUTE_BACKGROUND_DIRECT,
     DELIVERY_ROUTE_BACKGROUND_FALLBACK,
     DELIVERY_ROUTE_LIVE,
+    DELIVERY_ROUTE_LIVE_UNVERIFIED,
     DELIVERY_ROUTE_VALUES,
     apply_routing_implications,
     is_valid_delivery_route,
@@ -27,18 +28,20 @@ from app.utils.routing import (
 # ─── DELIVERY_ROUTE_VALUES enum ────────────────────────────────────
 
 
-def test_delivery_route_values_contains_three_canonical_strings():
+def test_delivery_route_values_contains_four_canonical_strings():
     assert DELIVERY_ROUTE_VALUES == frozenset(
-        {"live", "background_fallback", "background_direct"}
+        {"live", "live_unverified", "background_fallback", "background_direct"}
     )
 
 
 def test_delivery_route_constants_match_enum_values():
     assert DELIVERY_ROUTE_LIVE == "live"
+    assert DELIVERY_ROUTE_LIVE_UNVERIFIED == "live_unverified"
     assert DELIVERY_ROUTE_BACKGROUND_FALLBACK == "background_fallback"
     assert DELIVERY_ROUTE_BACKGROUND_DIRECT == "background_direct"
     for c in (
         DELIVERY_ROUTE_LIVE,
+        DELIVERY_ROUTE_LIVE_UNVERIFIED,
         DELIVERY_ROUTE_BACKGROUND_FALLBACK,
         DELIVERY_ROUTE_BACKGROUND_DIRECT,
     ):
@@ -50,6 +53,7 @@ def test_delivery_route_constants_match_enum_values():
 
 def test_is_valid_delivery_route_accepts_canonical_values():
     assert is_valid_delivery_route("live") is True
+    assert is_valid_delivery_route("live_unverified") is True
     assert is_valid_delivery_route("background_fallback") is True
     assert is_valid_delivery_route("background_direct") is True
 
