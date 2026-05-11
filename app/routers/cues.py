@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import AuthenticatedUser, get_current_user
 from app.database import get_db
 from app.schemas.cue import CueCreate, CueDetailResponse, CueListResponse, CueResponse, CueUpdate, FireRequest
 from app.services.cue_service import create_cue, delete_cue, get_cue, list_cues, update_cue
+from app.utils.verify_echo import apply_verify_echo
 
 router = APIRouter(prefix="/v1/cues", tags=["cues"])
 
@@ -91,6 +92,7 @@ async def delete(
 @router.post("/{cue_id}/fire", status_code=200)
 async def fire_cue(
     cue_id: str,
+    request: Request,
     body: Optional[FireRequest] = None,
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -159,8 +161,13 @@ async def fire_cue(
         db.add(outbox)
 
     await db.commit()
-    return {
+    response_content: dict = {
         "id": str(execution_id), "cue_id": cue.id,
         "scheduled_for": effective_scheduled_for.isoformat(),
         "status": "pending", "triggered_by": "manual_fire",
     }
+    # BodyVerify Layer 1: opt-in echo-back when caller sets
+    # X-CueAPI-Verify-Echo: true. Helper returns {} when header absent
+    # so non-opted clients see zero shape change.
+    response_content.update(apply_verify_echo(request=request, parsed_body=body))
+    return response_content

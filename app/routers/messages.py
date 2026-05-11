@@ -40,6 +40,7 @@ from app.services.message_service import (
     mark_read,
     to_response_dict,
 )
+from app.utils.verify_echo import apply_verify_echo
 from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/v1/messages", tags=["messages"])
@@ -101,9 +102,16 @@ async def send_message(
         # to priority=3. Surface the signal so senders can detect and
         # adapt without parsing message body.
         headers["X-CueAPI-Priority-Downgraded"] = "true"
+    response_content = MessageResponse(
+        **to_response_dict(msg)
+    ).model_dump(mode="json")
+    # BodyVerify Layer 1: opt-in echo-back when caller sets
+    # X-CueAPI-Verify-Echo: true. Helper returns {} when header absent
+    # so non-opted clients see zero shape change.
+    response_content.update(apply_verify_echo(request=request, parsed_body=body))
     return JSONResponse(
         status_code=status_code,
-        content=MessageResponse(**to_response_dict(msg)).model_dump(mode="json"),
+        content=response_content,
         headers=headers,
     )
 

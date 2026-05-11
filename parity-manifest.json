@@ -116,7 +116,7 @@
       {"path": "app/routers/__init__.py", "private_counterpart": "app/routers/__init__.py", "last_synced": "2026-04-16"},
       {"path": "app/routers/alerts.py", "private_counterpart": "app/routers/alerts.py", "last_synced": "2026-04-17"},
       {"path": "app/routers/auth_routes.py", "private_counterpart": "app/routers/auth_routes.py", "last_synced": "2026-04-16"},
-      {"path": "app/routers/cues.py", "private_counterpart": "app/routers/cues.py", "last_synced": "2026-04-16"},
+      {"path": "app/routers/cues.py", "private_counterpart": "app/routers/cues.py", "last_synced": "2026-05-11", "ported_in": "bodyverify-layer-1-substrate-echo-back", "deviation": "BodyVerify port: fire_cue handler integrates apply_verify_echo on response. OSS FireRequest carries only send_at; private's payload_override (dict with user-supplied string content carrying corruption-vector) is hosted-only. Metachar-class parametrization tests on the fire path are intentionally private-only — substrate helper coverage is exercised via messages endpoint tests."},
       {"path": "app/routers/device_code.py", "private_counterpart": "app/routers/device_code.py", "last_synced": "2026-04-16"},
       {"path": "app/routers/echo.py", "private_counterpart": "app/routers/echo.py", "last_synced": "2026-04-16"},
       {"path": "app/routers/executions.py", "private_counterpart": "app/routers/executions.py", "last_synced": "2026-04-16"},
@@ -125,7 +125,7 @@
       {"path": "app/routers/webhook_secret.py", "private_counterpart": "app/routers/webhook_secret.py", "last_synced": "2026-04-16"},
       {"path": "app/routers/workers.py", "private_counterpart": "app/routers/workers.py", "last_synced": "2026-04-16"},
       {"path": "app/routers/agents.py", "private_counterpart": "app/routers/agents.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
-      {"path": "app/routers/messages.py", "private_counterpart": "app/routers/messages.py", "last_synced": "2026-05-11", "ported_in": "messaging-primitive-port + messaging-emission-port (PR-2a)", "deviation": "PR-2a addition: correlation_id passthrough to create_message service."},
+      {"path": "app/routers/messages.py", "private_counterpart": "app/routers/messages.py", "last_synced": "2026-05-11", "ported_in": "messaging-primitive-port + messaging-emission-port (PR-2a) + bodyverify-layer-1-substrate-echo-back", "deviation": "PR-2a addition: correlation_id passthrough to create_message service. BodyVerify port: send_message handler integrates apply_verify_echo helper on response — identical shape to private; create_message tuple unpack is 3-element OSS vs 4-element private (private adds bcc_emitted)."},
       {"path": "app/routers/events.py", "private_counterpart": "app/routers/events.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b) + long-poll-port (PR-1b spec Q1) + item-1-inline-body-port + item-2b-cursor-advance-ack-port", "deviation": "Long-poll uses internal polling loop rather than PostgreSQL LISTEN/NOTIFY per impl trade-off; wire contract identical. Future LISTEN/NOTIFY swap tracked at cmp0m7n7r (private) — file OSS counterpart row when prioritized. Item 1 addition: SubscriptionCreate accepts inline_body field; SubscriptionResponse surfaces it. Item 2(b) addition: PATCH /subscriptions/{id}/ack endpoint + AckSubscriptionRequest schema + _advance_ack_after_pull helper + last_acked_event_id surfaced on SubscriptionResponse."}
     ],
     "schemas": [
@@ -165,7 +165,8 @@
       {"path": "app/utils/templates.py", "private_counterpart": "app/utils/templates.py", "last_synced": "2026-04-16"},
       {"path": "app/utils/url_validation.py", "private_counterpart": "app/utils/url_validation.py", "last_synced": "2026-04-16"},
       {"path": "app/utils/retry_after.py", "private_counterpart": "app/utils/retry_after.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
-      {"path": "app/utils/slug.py", "private_counterpart": "app/utils/slug.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"}
+      {"path": "app/utils/slug.py", "private_counterpart": "app/utils/slug.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
+      {"path": "app/utils/verify_echo.py", "private_counterpart": "app/utils/verify_echo.py", "last_synced": "2026-05-11", "ported_in": "bodyverify-layer-1-substrate-echo-back"}
     ],
     "worker": [
       {"path": "worker/tasks.py", "private_counterpart": "worker/tasks.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "ports messaging-specific functions only (deliver_message_task, retry_message_task, _check_concurrent_cap_or_recycle, _release_concurrent, _load_message_context, _claim_message, _route_attempt_outcome) — does not port other private deltas (catch_up_policy, heartbeat trigger, etc., scheduled for a follow-up phase)"},
