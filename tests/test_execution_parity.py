@@ -104,6 +104,89 @@ class TestListExecutions:
         resp = await client.get("/v1/executions")
         assert resp.status_code == 401
 
+    @pytest.mark.asyncio
+    async def test_filter_by_worker_id(self, client, auth_headers, db_session, registered_user):
+        """`worker_id=` scopes to executions claimed by that worker, and
+        `oldest_claimed_at` reflects the earliest claimed_at over the
+        filtered set."""
+        user_id = await _get_user_id(db_session, registered_user)
+        cue = await _create_worker_cue(db_session, user_id)
+        early = datetime.now(timezone.utc) - timedelta(minutes=10)
+        late = datetime.now(timezone.utc) - timedelta(minutes=2)
+        await _create_execution(
+            db_session, cue.id, status="delivering",
+            claimed_by_worker="worker-A", claimed_at=early,
+        )
+        await _create_execution(
+            db_session, cue.id, status="delivering",
+            claimed_by_worker="worker-A", claimed_at=late,
+        )
+        await _create_execution(
+            db_session, cue.id, status="delivering",
+            claimed_by_worker="worker-B", claimed_at=datetime.now(timezone.utc),
+        )
+
+        resp = await client.get("/v1/executions?worker_id=worker-A", headers=auth_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        # Two of the three executions are claimed by worker-A; the third
+        # (worker-B) must be excluded. ExecutionResponse doesn't surface
+        # claimed_by_worker, so we verify via the count + the
+        # oldest_claimed_at value.
+        assert data["total"] == 2
+        # Earliest claimed_at over the filtered set, ISO 8601 string. The
+        # worker-B execution claimed "now" must NOT win — confirms scoping.
+        assert data["oldest_claimed_at"] is not None
+        assert data["oldest_claimed_at"].startswith(early.isoformat()[:19])
+
+    @pytest.mark.asyncio
+    async def test_status_in_returns_union(self, client, auth_headers, db_session, registered_user):
+        """`status__in=pending,delivering` returns the union; mutex with
+        `status=` returns 400."""
+        user_id = await _get_user_id(db_session, registered_user)
+        cue = await _create_worker_cue(db_session, user_id)
+        await _create_execution(db_session, cue.id, status="pending")
+        await _create_execution(
+            db_session, cue.id, status="delivering",
+            claimed_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
+        await _create_execution(db_session, cue.id, status="success")
+
+        resp = await client.get(
+            "/v1/executions?status__in=pending,delivering", headers=auth_headers
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 2
+        statuses = {ex["status"] for ex in data["executions"]}
+        assert statuses == {"pending", "delivering"}
+
+        # Mutex check.
+        resp = await client.get(
+            "/v1/executions?status=pending&status__in=pending,delivering",
+            headers=auth_headers,
+        )
+        assert resp.status_code == 400
+        # Global exception handler unwraps HTTPException.detail.
+        assert resp.json()["error"]["code"] == "conflicting_filters"
+
+    @pytest.mark.asyncio
+    async def test_oldest_claimed_at_null_when_empty(
+        self, client, auth_headers, db_session, registered_user
+    ):
+        """`oldest_claimed_at` is null when the filtered set is empty."""
+        user_id = await _get_user_id(db_session, registered_user)
+        cue = await _create_worker_cue(db_session, user_id)
+        await _create_execution(db_session, cue.id, status="pending")
+
+        resp = await client.get(
+            "/v1/executions?worker_id=does-not-exist", headers=auth_headers
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 0
+        assert data["oldest_claimed_at"] is None
+
 
 # ── 2. GET /v1/executions/{id} ──
 
