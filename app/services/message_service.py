@@ -362,6 +362,11 @@ async def create_message(
                 "subject": subject,
             },
             idempotency_key=f"message.delivered:{msg_id}",
+            # Item 1 — pass body so emit_event can embed it on
+            # behalf of subscribers with inline_body=True (≤32KB)
+            # or set the omit-flag (>32KB). Non-inline subscribers
+            # see no change — payload stays META-only for them.
+            body_text=body,
         )
     except Exception as exc:  # noqa: BLE001 — best-effort, don't block create
         logger.warning(

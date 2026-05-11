@@ -34,6 +34,7 @@ from __future__ import annotations
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
@@ -113,6 +114,16 @@ class Subscription(Base):
         server_default="0",
     )
     paused_until = Column(DateTime(timezone=True), nullable=True)
+    # Item 1 Option 1 (migration 061, CTO concur 2026-05-11) — opt-in
+    # body embedding. When True, emit_event includes the source
+    # message body in payload.body (≤32KB) or sets a body_omitted
+    # flag (>32KB). Default False preserves v1 META-only behavior.
+    inline_body = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
