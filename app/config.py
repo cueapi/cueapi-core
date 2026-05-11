@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     # Messaging push delivery: how long a "delivering" message can sit
     # before stale-recovery transitions it back to retry_ready.
     MESSAGE_DELIVERY_STALE_AFTER_SECONDS: int = 300
+    # Phase 4a: priority-tier subscription dispatcher. p=4 (high) events
+    # debounce to at most 1 webhook fire per recipient per window. p=3
+    # (default) + p=5 (urgent) pass through unchanged at v1; p=2 + p=1
+    # batch into digests in Phase 4b. Tunable; default 2s per CTO concur
+    # 2026-05-11 (matches "rapid burst" debounce of Q2 design lock).
+    PRIORITY_4_DEBOUNCE_SECONDS: float = 2.0
     # Messaging TTL: how many days a queued message stays visible before
     # the cleanup task moves it to ``expired``. Self-hosters can tune
     # this for archival vs retention semantics — short TTL (e.g. 7d)

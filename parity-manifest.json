@@ -165,7 +165,8 @@
     "worker": [
       {"path": "worker/tasks.py", "private_counterpart": "worker/tasks.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "ports messaging-specific functions only (deliver_message_task, retry_message_task, _check_concurrent_cap_or_recycle, _release_concurrent, _load_message_context, _claim_message, _route_attempt_outcome) — does not port other private deltas (catch_up_policy, heartbeat trigger, etc., scheduled for a follow-up phase)"},
       {"path": "worker/poller.py", "private_counterpart": "worker/poller.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "ports messaging-specific changes only (recover_stale_message_deliveries function + dispatch_outbox scheduled_at filter + deliver_message/retry_message routing)"},
-      {"path": "worker/subscription_dispatcher.py", "private_counterpart": "worker/subscription_dispatcher.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b)"}
+      {"path": "worker/subscription_dispatcher.py", "private_counterpart": "worker/subscription_dispatcher.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b) + phase-4a-policy-port", "deviation": "Phase 4a additions verbatim: redis=None kwarg + apply_tier_policy pre-deliver filter + stamp_dispatch_markers post-deliver side effect + watermark math caveat for deferred events. Backward-compat default (redis=None) preserves v1 behavior."},
+      {"path": "worker/subscription_dispatcher_policy.py", "private_counterpart": "worker/subscription_dispatcher_policy.py", "last_synced": "2026-05-11", "ported_in": "phase-4a-policy-port"}
     ]
   }
 }

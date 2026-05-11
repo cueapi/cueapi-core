@@ -35,6 +35,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from app.models.event import Event
 from app.models.subscription import Subscription
 from app.utils.signing import sign_payload
+from worker.subscription_dispatcher_policy import (
+    apply_tier_policy,
+    stamp_dispatch_markers,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -225,6 +229,7 @@ async def _deliver_webhook(
 async def dispatch_subscription_events(
     db_engine: AsyncEngine,
     batch_size: int = DISPATCH_BATCH_SIZE,
+    redis=None,
 ) -> int:
     """Drain one cycle of pending webhook deliveries.
 
@@ -256,7 +261,27 @@ async def dispatch_subscription_events(
                     # idle case. Skip silently.
                     continue
 
-                body = _build_webhook_body(str(sub.id), events)
+                # Phase 4a — per-tier policy. Filters p=4 events when
+                # the recipient is in the debounce window; passes the
+                # rest through. Redis-down falls through to "fire
+                # everything" per the helper's defensive behavior.
+                if redis is not None:
+                    events_to_fire, events_deferred = await apply_tier_policy(
+                        redis,
+                        subscriber_agent_id=sub.subscriber_agent_id,
+                        events=events,
+                    )
+                else:
+                    events_to_fire, events_deferred = list(events), []
+
+                if not events_to_fire:
+                    # All events deferred (only p=4 in the batch +
+                    # recipient is debounced). Skip the webhook fire;
+                    # leave watermark unadvanced; re-evaluate next
+                    # cycle. NOT counted as an attempt.
+                    continue
+
+                body = _build_webhook_body(str(sub.id), events_to_fire)
                 ok, status_code = await _deliver_webhook(
                     url=sub.webhook_url,  # type: ignore[arg-type]  # delivery_target='webhook' guarantees non-None
                     secret=sub.webhook_secret,  # type: ignore[arg-type]
@@ -265,15 +290,45 @@ async def dispatch_subscription_events(
                 outcome = _classify_response(ok=ok, status_code=status_code)
 
                 if outcome == "success":
+                    # Phase 4a watermark math: when some events are
+                    # deferred, advance only up to the highest-id
+                    # event in events_to_fire that's BEFORE the lowest
+                    # deferred event. Preserves ordering: deferred
+                    # events stay in the queue at their original id
+                    # for the next cycle. With no deferred events,
+                    # advances to events_to_fire[-1].id (v1 behavior).
+                    if events_deferred:
+                        lowest_deferred_id = min(e.id for e in events_deferred)
+                        contiguous_fired = [
+                            e for e in events_to_fire if e.id < lowest_deferred_id
+                        ]
+                        new_watermark = (
+                            contiguous_fired[-1].id
+                            if contiguous_fired
+                            else (sub.last_dispatched_event_id or 0)
+                        )
+                    else:
+                        new_watermark = events_to_fire[-1].id
+
                     await session.execute(
                         update(Subscription)
                         .where(Subscription.id == sub.id)
                         .values(
-                            last_dispatched_event_id=events[-1].id,
+                            last_dispatched_event_id=new_watermark,
                             last_dispatched_at=datetime.now(timezone.utc),
                             consecutive_failures=0,
                         )
                     )
+
+                    # Phase 4a — record p=4 fire so subsequent cycles
+                    # within the window suppress further p=4 fires
+                    # to the same recipient.
+                    if redis is not None:
+                        await stamp_dispatch_markers(
+                            redis,
+                            subscriber_agent_id=sub.subscriber_agent_id,
+                            events=events_to_fire,
+                        )
                 else:
                     # retry + skip both bump the failure counter without
                     # advancing the watermark. Distinction matters for
