@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "description": "Files in cueapi-core that have a same-path counterpart in the private cueapi monorepo. Changes to the private counterpart should be considered for porting here; changes here should be cross-referenced to the private repo. The parity-check GitHub Action posts a soft warning on PRs that touch any of these paths. See HOSTED_ONLY.md for the open-core policy.",
   "direction_of_truth_note": "Parity is BIDIRECTIONAL — most parity-tracked files flow private → OSS (private leads on hosted product features), but a growing set flow OSS → private (auth primitives, messaging primitives, identity-mapping helpers, and cross-codebase substrate ports where OSS is the canonical home per CWS-2026-05-08 lock). When a parity-tracked file changes, identify direction in the PR description; both directions are equally valid. Examples — OSS-leads / private-lags: `app/auth.py` (X-On-Behalf-Of), counterpart filter on inbox/sent, `app/utils/routing.py` helper, `external_owner` column. Private-leads / OSS-lags: most product features (billing, GDPR, dashboard, Stripe-paid surfaces) — but those don't appear in parity-manifest by virtue of being hosted-only (see oss_only_exclusions + HOSTED_ONLY.md). Special bidirectional case: `agent_live_sessions` schema port — private leads on the table itself (richer schema with cmotigtnx attestation), OSS leads on the documentation surface (`docs/multi-session.md`).",
-  "last_full_audit": "2026-05-01",
+  "last_full_audit": "2026-05-11",
   "methodology": "Enumerate app/**/*.py and alembic/**/*.py in cueapi-core; include every file whose same-path counterpart exists in the private cueapi clone at audit time. Files that are OSS-only (no private counterpart) are intentionally excluded — modifications to them do not need a parity cross-reference.",
   "oss_only_exclusions": [
     {
@@ -73,7 +73,8 @@
       {"path": "alembic/versions/013_add_blog_image_data.py", "private_counterpart": "alembic/versions/013_add_blog_image_data.py", "last_synced": "2026-04-16"},
       {"path": "alembic/versions/014_add_support_tickets.py", "private_counterpart": "alembic/versions/014_add_support_tickets.py", "last_synced": "2026-04-16"},
       {"path": "alembic/versions/015_widen_device_code_column.py", "private_counterpart": "alembic/versions/015_widen_device_code_column.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/016_add_on_failure_column.py", "private_counterpart": "alembic/versions/016_add_on_failure_column.py", "last_synced": "2026-04-16"}
+      {"path": "alembic/versions/016_add_on_failure_column.py", "private_counterpart": "alembic/versions/016_add_on_failure_column.py", "last_synced": "2026-04-16"},
+      {"path": "alembic/versions/028_event_emit_primitive.py", "private_counterpart": "alembic/versions/058_event_emit_primitive.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b)", "deviation": "Renumbered 058 → 028 (cueapi-core HEAD is 27 revisions behind private). Schema verbatim."}
     ],
     "app_core": [
       {"path": "app/__init__.py", "private_counterpart": "app/__init__.py", "last_synced": "2026-04-16"},
@@ -101,7 +102,9 @@
       {"path": "app/models/worker.py", "private_counterpart": "app/models/worker.py", "last_synced": "2026-04-16"},
       {"path": "app/models/agent.py", "private_counterpart": "app/models/agent.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
       {"path": "app/models/message.py", "private_counterpart": "app/models/message.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "from_api_key_id column omitted (multi-key scoping is hosted-only)"},
-      {"path": "app/models/usage_messages_monthly.py", "private_counterpart": "app/models/usage_messages_monthly.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"}
+      {"path": "app/models/usage_messages_monthly.py", "private_counterpart": "app/models/usage_messages_monthly.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
+      {"path": "app/models/event.py", "private_counterpart": "app/models/event.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b)"},
+      {"path": "app/models/subscription.py", "private_counterpart": "app/models/subscription.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b)"}
     ],
     "routers": [
       {"path": "app/routers/__init__.py", "private_counterpart": "app/routers/__init__.py", "last_synced": "2026-04-16"},
@@ -116,7 +119,8 @@
       {"path": "app/routers/webhook_secret.py", "private_counterpart": "app/routers/webhook_secret.py", "last_synced": "2026-04-16"},
       {"path": "app/routers/workers.py", "private_counterpart": "app/routers/workers.py", "last_synced": "2026-04-16"},
       {"path": "app/routers/agents.py", "private_counterpart": "app/routers/agents.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
-      {"path": "app/routers/messages.py", "private_counterpart": "app/routers/messages.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"}
+      {"path": "app/routers/messages.py", "private_counterpart": "app/routers/messages.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
+      {"path": "app/routers/events.py", "private_counterpart": "app/routers/events.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b)"}
     ],
     "schemas": [
       {"path": "app/schemas/__init__.py", "private_counterpart": "app/schemas/__init__.py", "last_synced": "2026-04-16"},
@@ -142,7 +146,8 @@
       {"path": "app/services/message_classification.py", "private_counterpart": "app/services/message_classification.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
       {"path": "app/services/message_delivery.py", "private_counterpart": "app/services/message_delivery.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
       {"path": "app/services/message_service.py", "private_counterpart": "app/services/message_service.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "user.api_key_id and msg.from_api_key_id references removed"},
-      {"path": "app/services/message_usage_service.py", "private_counterpart": "app/services/message_usage_service.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"}
+      {"path": "app/services/message_usage_service.py", "private_counterpart": "app/services/message_usage_service.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
+      {"path": "app/services/events_service.py", "private_counterpart": "app/services/events_service.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b)"}
     ],
     "utils": [
       {"path": "app/utils/__init__.py", "private_counterpart": "app/utils/__init__.py", "last_synced": "2026-04-16"},
@@ -158,7 +163,8 @@
     ],
     "worker": [
       {"path": "worker/tasks.py", "private_counterpart": "worker/tasks.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "ports messaging-specific functions only (deliver_message_task, retry_message_task, _check_concurrent_cap_or_recycle, _release_concurrent, _load_message_context, _claim_message, _route_attempt_outcome) — does not port other private deltas (catch_up_policy, heartbeat trigger, etc., scheduled for a follow-up phase)"},
-      {"path": "worker/poller.py", "private_counterpart": "worker/poller.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "ports messaging-specific changes only (recover_stale_message_deliveries function + dispatch_outbox scheduled_at filter + deliver_message/retry_message routing)"}
+      {"path": "worker/poller.py", "private_counterpart": "worker/poller.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "ports messaging-specific changes only (recover_stale_message_deliveries function + dispatch_outbox scheduled_at filter + deliver_message/retry_message routing)"},
+      {"path": "worker/subscription_dispatcher.py", "private_counterpart": "worker/subscription_dispatcher.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b)"}
     ]
   }
 }
