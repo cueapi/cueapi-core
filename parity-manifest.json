@@ -87,14 +87,15 @@
       {"path": "app/auth.py", "private_counterpart": "app/auth.py", "last_synced": "2026-04-16"},
       {"path": "app/config.py", "private_counterpart": "app/config.py", "last_synced": "2026-04-16"},
       {"path": "app/database.py", "private_counterpart": "app/database.py", "last_synced": "2026-04-16"},
-      {"path": "app/main.py", "private_counterpart": "app/main.py", "last_synced": "2026-04-16"},
+      {"path": "app/main.py", "private_counterpart": "app/main.py", "last_synced": "2026-05-11", "ported_in": "bodyverify-layer-1-5-universal-middleware", "deviation": "BodyVerify port: VerifyEchoMiddleware registered between CORS/RequestId and RateLimit. Private has additional middlewares (SecurityHeaders, AccessAudit) hosted-only; ordering preserved relative to shared middlewares."},
       {"path": "app/redis.py", "private_counterpart": "app/redis.py", "last_synced": "2026-04-16"}
     ],
     "middleware": [
       {"path": "app/middleware/__init__.py", "private_counterpart": "app/middleware/__init__.py", "last_synced": "2026-04-16"},
       {"path": "app/middleware/body_limit.py", "private_counterpart": "app/middleware/body_limit.py", "last_synced": "2026-04-16"},
       {"path": "app/middleware/rate_limit.py", "private_counterpart": "app/middleware/rate_limit.py", "last_synced": "2026-04-16"},
-      {"path": "app/middleware/request_id.py", "private_counterpart": "app/middleware/request_id.py", "last_synced": "2026-04-16"}
+      {"path": "app/middleware/request_id.py", "private_counterpart": "app/middleware/request_id.py", "last_synced": "2026-04-16"},
+      {"path": "app/middleware/verify_echo.py", "private_counterpart": "app/middleware/verify_echo.py", "last_synced": "2026-05-11", "ported_in": "bodyverify-layer-1-5-universal-middleware"}
     ],
     "models": [
       {"path": "app/models/__init__.py", "private_counterpart": "app/models/__init__.py", "last_synced": "2026-04-16"},
