@@ -9,7 +9,33 @@ from sqlalchemy import select, text
 
 from app.models.device_code import DeviceCode
 from app.models.dispatch_outbox import DispatchOutbox
+from app.models.execution import Execution
+from tests.test_poller import _create_due_cue, _create_test_user
 from worker.poller import cleanup_device_codes, cleanup_outbox
+
+
+async def _create_anchor_execution(db_session) -> uuid.UUID:
+    """Create a real User + Cue + Execution and return the execution id.
+
+    Outbox rows have a FK on ``execution_id → executions.id``
+    (ON DELETE CASCADE) per migration 002. Tests that previously
+    inserted outbox rows with synthetic UUIDs relied on the model
+    omitting the FK; now that the model agrees with the migration
+    they must point at a real execution.
+    """
+    user_id = await _create_test_user(db_session)
+    cue = await _create_due_cue(db_session, user_id)
+    exec_id = uuid.uuid4()
+    db_session.add(
+        Execution(
+            id=exec_id,
+            cue_id=cue.id,
+            scheduled_for=datetime.now(timezone.utc),
+            status="pending",
+        )
+    )
+    await db_session.commit()
+    return exec_id
 
 
 # ── Health endpoint ──────────────────────────────────────────────────
@@ -39,12 +65,15 @@ async def test_health_includes_metrics(client):
 async def test_outbox_cleanup_removes_old_rows(db_session, db_engine):
     """Dispatched outbox rows older than 7 days are deleted."""
     old_time = datetime.now(timezone.utc) - timedelta(days=10)
-    exec_id = uuid.uuid4()
+    exec_id = await _create_anchor_execution(db_session)
 
     await db_session.execute(
         DispatchOutbox.__table__.insert().values(
             execution_id=exec_id,
-            cue_id="cue_old000001",
+            # cue_id NULL — this fixture tests outbox cleanup, not cue
+            # association. Synthetic IDs broke the cues(id) FK once it
+            # was declared on the model (PR #594 second-half drift fix).
+            cue_id=None,
             task_type="deliver",
             payload={},
             dispatched=True,
@@ -67,12 +96,12 @@ async def test_outbox_cleanup_removes_old_rows(db_session, db_engine):
 async def test_outbox_cleanup_keeps_recent(db_session, db_engine):
     """Dispatched outbox rows newer than 7 days are kept."""
     recent_time = datetime.now(timezone.utc) - timedelta(days=1)
-    exec_id = uuid.uuid4()
+    exec_id = await _create_anchor_execution(db_session)
 
     await db_session.execute(
         DispatchOutbox.__table__.insert().values(
             execution_id=exec_id,
-            cue_id="cue_recent0001",
+            cue_id=None,  # see test_outbox_cleanup_removes_old_rows
             task_type="deliver",
             payload={},
             dispatched=True,
@@ -94,12 +123,12 @@ async def test_outbox_cleanup_keeps_recent(db_session, db_engine):
 async def test_outbox_cleanup_keeps_undispatched(db_session, db_engine):
     """Undispatched outbox rows are never cleaned up regardless of age."""
     old_time = datetime.now(timezone.utc) - timedelta(days=30)
-    exec_id = uuid.uuid4()
+    exec_id = await _create_anchor_execution(db_session)
 
     await db_session.execute(
         DispatchOutbox.__table__.insert().values(
             execution_id=exec_id,
-            cue_id="cue_undisp001",
+            cue_id=None,  # see test_outbox_cleanup_removes_old_rows
             task_type="deliver",
             payload={},
             dispatched=False,
