@@ -331,6 +331,12 @@ async def dispatch_subscription_events(
                             last_dispatched_event_id=new_watermark,
                             last_dispatched_at=datetime.now(timezone.utc),
                             consecutive_failures=0,
+                            # Item 2(b) — successful webhook delivery is
+                            # treated as ack. last_acked_event_id advances
+                            # alongside last_dispatched_event_id so the
+                            # surface observable to consumers matches
+                            # "events I've actually received."
+                            last_acked_event_id=new_watermark,
                         )
                     )
 

@@ -107,6 +107,18 @@ class Subscription(Base):
     # successfully dispatched.
     last_dispatched_event_id = Column(BigInteger, nullable=True)
     last_dispatched_at = Column(DateTime(timezone=True), nullable=True)
+    # Item 2(b) (migration 062, CTO concur 2026-05-11) — ack watermark.
+    # Advances via:
+    #   - Pull-mode: GET /events response advances all matching pull
+    #     subs' last_acked_event_id to next_cursor.
+    #   - Webhook-mode: successful dispatch advances alongside
+    #     last_dispatched_event_id.
+    #   - Explicit: PATCH /subscriptions/{id}/ack for caller-initiated
+    #     ack without pulling new events.
+    # Distinguishes "substrate attempted delivery" from "consumer
+    # acknowledged receipt" — enables RPC ack tracking + reply-chain
+    # status surfaces.
+    last_acked_event_id = Column(BigInteger, nullable=True)
     consecutive_failures = Column(
         Integer,
         nullable=False,

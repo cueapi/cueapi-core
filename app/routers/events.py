@@ -54,6 +54,8 @@ from app.models.subscription import Subscription
 from app.services.agent_service import get_agent_owned
 from app.services.events_service import (
     EventsServiceError,
+    ack_subscription,
+    advance_ack_watermark,
     create_subscription,
     detach_subscription,
     list_subscriptions,
@@ -107,6 +109,7 @@ class SubscriptionResponse(BaseModel):
     inline_body: bool = False
     last_dispatched_event_id: Optional[int] = None
     last_dispatched_at: Optional[str] = None
+    last_acked_event_id: Optional[int] = None
     consecutive_failures: int = 0
     paused_until: Optional[str] = None
     created_at: str
@@ -125,6 +128,20 @@ class EventResponse(BaseModel):
     recipient_agent_id: str
     payload: Dict[str, Any]
     emitted_at: str
+
+
+class AckSubscriptionRequest(BaseModel):
+    """Body for PATCH /v1/agents/{ref}/subscriptions/{id}/ack.
+
+    Item 2(b) explicit-ack surface (CTO concur 2026-05-11). For
+    webhook subscribers + pull consumers wanting to ack without
+    pulling new events. Watermark monotonicity is server-enforced
+    (no rewinds).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    acked_event_id: int = Field(..., ge=0)
 
 
 class EventListResponse(BaseModel):
@@ -175,6 +192,7 @@ def _subscription_to_response(
         webhook_secret=sub.webhook_secret if include_secret else None,
         inline_body=bool(sub.inline_body),
         last_dispatched_event_id=sub.last_dispatched_event_id,
+        last_acked_event_id=sub.last_acked_event_id,
         last_dispatched_at=(
             sub.last_dispatched_at.isoformat() if sub.last_dispatched_at else None
         ),
@@ -270,6 +288,48 @@ async def list_subscriptions_endpoint(
     )
 
 
+@router.patch(
+    "/{ref}/subscriptions/{subscription_id}/ack",
+    status_code=200,
+)
+async def ack_subscription_endpoint(
+    ref: str,
+    subscription_id: UUID,
+    body: AckSubscriptionRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Item 2(b) — explicit ack for a subscription.
+
+    Two cases this serves (vs. the implicit cursor-advance path
+    on GET /events):
+
+    * **Webhook subscribers** — they don't pull; their dispatch
+      loop advances ack on successful POST automatically, but the
+      explicit PATCH lets a downstream consumer-of-the-webhook
+      flow back its own ack signal (e.g., recipient processed the
+      message vs. just received it).
+    * **Pull consumers needing to ack without polling new events**
+      — rare but useful for "I've processed up to event N, but
+      I'm not ready to pull more yet."
+
+    Watermark monotonicity enforced server-side: this endpoint
+    never moves the ack backwards. Returns 200 with
+    ``{"acked": True}`` regardless of whether the update was a
+    no-op (already-at-or-past-N) or an actual advance — observable
+    end state is the same.
+    """
+    agent = await get_agent_owned(db, user, ref)
+    await ack_subscription(
+        db,
+        subscription_id=subscription_id,
+        subscriber_agent_id=agent.id,
+        acked_event_id=body.acked_event_id,
+    )
+    await db.commit()
+    return {"acked": True}
+
+
 @router.delete(
     "/{ref}/subscriptions/{subscription_id}",
     status_code=200,
@@ -300,6 +360,47 @@ async def delete_subscription_endpoint(
 # Long-poll constants — tunable for tests + future optimization.
 LONG_POLL_MAX_SECONDS = 30.0
 LONG_POLL_INTERNAL_INTERVAL_SECONDS = 1.0
+
+
+async def _advance_ack_after_pull(
+    db: AsyncSession,
+    *,
+    agent_id: str,
+    next_cursor: Optional[int],
+    event_type: Optional[str],
+) -> None:
+    """Item 2(b) ack-advance side-effect for GET /v1/agents/{ref}/events.
+
+    Extracted as a pure helper for two reasons:
+
+    1. **Coverage**: pytest-cov on ASGI-dispatched paths doesn't
+       reliably trace branches through FastAPI's async route wrapper
+       (same pattern as ``_run_long_poll_wait``). Pulling the
+       side-effect into a top-level coroutine makes coverage
+       deterministic.
+    2. **Testability**: direct ``await`` calls are simpler than
+       orchestrating async background-event inserts via TestClient.
+
+    Behavior:
+
+    - If ``next_cursor`` is None (no events returned), no-op.
+    - Else: call ``advance_ack_watermark`` to bulk-update matching
+      pull subs' ``last_acked_event_id``. Wrapped try/except — ack
+      write failure must NOT corrupt the consumer's read; the pull
+      itself already succeeded.
+    """
+    if next_cursor is None:
+        return
+    try:
+        await advance_ack_watermark(
+            db,
+            recipient_agent_id=agent_id,
+            new_acked_event_id=next_cursor,
+            event_type=event_type,
+        )
+        await db.commit()
+    except Exception:  # noqa: BLE001 — read already succeeded; never bubble
+        await db.rollback()
 
 
 async def _run_long_poll_wait(
@@ -434,6 +535,17 @@ async def pull_events_endpoint(
             limit=limit,
             event_type=event_type,
         )
+
+    # Item 2(b) — cursor-advance-as-ack side-effect. Extracted to a
+    # pure helper for direct testability + ASGI-coverage-tracing
+    # reliability (per CLAUDE.md pure-helper extraction discipline;
+    # same pattern as _run_long_poll_wait).
+    await _advance_ack_after_pull(
+        db,
+        agent_id=agent.id,
+        next_cursor=next_cursor,
+        event_type=event_type,
+    )
 
     return EventListResponse(
         events=[_event_to_response(e) for e in events],
