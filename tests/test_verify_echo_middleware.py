@@ -173,10 +173,11 @@ async def test_phase_1_messages_endpoint_idempotent_under_middleware(
     client, auth_headers
 ):
     """Phase 1's send_message handler already injects echo — middleware must
-    NOT overwrite the handler-supplied ``body_received``. The handler echoes
-    the parsed Pydantic dict; middleware would echo the raw JSON. We pin the
-    handler-supplied shape (sentinel: handler's view includes ``body`` key
-    inside ``body_received``)."""
+    NOT overwrite the handler-supplied ``body_received``. With the spec-lock
+    (cueapi/cueapi#798), the handler extracts the STRING value of
+    ``MessageCreate.body`` (not the parsed Pydantic dump). Middleware would
+    echo a different shape (raw JSON dict), so the handler's STRING wins
+    via idempotency."""
     sender = await _make_agent(
         client, auth_headers, slug=f"idem-s-{uuid.uuid4().hex[:6]}"
     )
@@ -195,11 +196,10 @@ async def test_phase_1_messages_endpoint_idempotent_under_middleware(
     assert r.status_code == 201
     data = r.json()
     assert "body_received" in data
-    # Phase 1 handler dumps the Pydantic MessageCreate, so body_received is
-    # a dict with the parsed fields. Middleware-injected echo would also be
-    # a dict (parsed from raw JSON) — but we want to be sure idempotency
-    # preserved the handler's view.
-    assert data["body_received"]["body"] == "idem test"
+    # Spec-locked shape: body_received is the STRING value of MessageCreate.body.
+    # If middleware had overwritten the handler's echo, this would be a dict
+    # (the full parsed JSON body), so the assertion would fail.
+    assert data["body_received"] == "idem test"
 
 
 # ───────────────────────────────────────────────────────────────────────

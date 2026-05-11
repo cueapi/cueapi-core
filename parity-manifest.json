@@ -1,9 +1,9 @@
 {
   "manifest_version": 1,
   "description": "Files in cueapi-core that have a same-path counterpart in the private cueapi monorepo. Changes to the private counterpart should be considered for porting here; changes here should be cross-referenced to the private repo. The parity-check GitHub Action posts a soft warning on PRs that touch any of these paths. See HOSTED_ONLY.md for the open-core policy.",
-  "direction_of_truth_note": "Parity is BIDIRECTIONAL — most parity-tracked files flow private → OSS (private leads on hosted product features), but a growing set flow OSS → private (auth primitives, messaging primitives, identity-mapping helpers, and cross-codebase substrate ports where OSS is the canonical home per CWS-2026-05-08 lock). When a parity-tracked file changes, identify direction in the PR description; both directions are equally valid. Examples — OSS-leads / private-lags: `app/auth.py` (X-On-Behalf-Of), counterpart filter on inbox/sent, `app/utils/routing.py` helper, `external_owner` column. Private-leads / OSS-lags: most product features (billing, GDPR, dashboard, Stripe-paid surfaces) — but those don't appear in parity-manifest by virtue of being hosted-only (see oss_only_exclusions + HOSTED_ONLY.md). Special bidirectional case: `agent_live_sessions` schema port — private leads on the table itself (richer schema with cmotigtnx attestation), OSS leads on the documentation surface (`docs/multi-session.md`).",
+  "direction_of_truth_note": "Parity is BIDIRECTIONAL \u2014 most parity-tracked files flow private \u2192 OSS (private leads on hosted product features), but a growing set flow OSS \u2192 private (auth primitives, messaging primitives, identity-mapping helpers, and cross-codebase substrate ports where OSS is the canonical home per CWS-2026-05-08 lock). When a parity-tracked file changes, identify direction in the PR description; both directions are equally valid. Examples \u2014 OSS-leads / private-lags: `app/auth.py` (X-On-Behalf-Of), counterpart filter on inbox/sent, `app/utils/routing.py` helper, `external_owner` column. Private-leads / OSS-lags: most product features (billing, GDPR, dashboard, Stripe-paid surfaces) \u2014 but those don't appear in parity-manifest by virtue of being hosted-only (see oss_only_exclusions + HOSTED_ONLY.md). Special bidirectional case: `agent_live_sessions` schema port \u2014 private leads on the table itself (richer schema with cmotigtnx attestation), OSS leads on the documentation surface (`docs/multi-session.md`).",
   "last_full_audit": "2026-05-11",
-  "methodology": "Enumerate app/**/*.py and alembic/**/*.py in cueapi-core; include every file whose same-path counterpart exists in the private cueapi clone at audit time. Files that are OSS-only (no private counterpart) are intentionally excluded — modifications to them do not need a parity cross-reference.",
+  "methodology": "Enumerate app/**/*.py and alembic/**/*.py in cueapi-core; include every file whose same-path counterpart exists in the private cueapi clone at audit time. Files that are OSS-only (no private counterpart) are intentionally excluded \u2014 modifications to them do not need a parity cross-reference.",
   "oss_only_exclusions": [
     {
       "path": "app/services/email_service.py",
@@ -11,7 +11,7 @@
     },
     {
       "path": "alembic/versions/017_add_verification_mode.py",
-      "reason": "OSS-specific filename. Hosted ships equivalent verification_mode functionality at a different migration number (hosted's 017 is 017_add_support_ticket_updated_at.py). Feature parity is at the app-layer (cue.py, schemas, services) — those files ARE in the manifest."
+      "reason": "OSS-specific filename. Hosted ships equivalent verification_mode functionality at a different migration number (hosted's 017 is 017_add_support_ticket_updated_at.py). Feature parity is at the app-layer (cue.py, schemas, services) \u2014 those files ARE in the manifest."
     },
     {
       "path": "alembic/versions/018_add_alerts_table.py",
@@ -27,154 +27,619 @@
     },
     {
       "path": "alembic/versions/020_messaging_identity.py",
-      "reason": "OSS-specific filename. Hosted ships the same migration as 043_messaging_identity.py — independent migration histories. Feature parity is at the app-layer (agent.py, schemas, services) — those files ARE in the manifest."
+      "reason": "OSS-specific filename. Hosted ships the same migration as 043_messaging_identity.py \u2014 independent migration histories. Feature parity is at the app-layer (agent.py, schemas, services) \u2014 those files ARE in the manifest."
     },
     {
       "path": "alembic/versions/021_messaging_messages.py",
-      "reason": "OSS-specific filename. Hosted ships the same migration as 044_messaging_messages.py — independent histories. Hosted's version also creates ``messages.from_api_key_id`` (FK to api_keys); cueapi-core omits that column because multi-key scoping is hosted-only. App-layer parity at message.py."
+      "reason": "OSS-specific filename. Hosted ships the same migration as 044_messaging_messages.py \u2014 independent histories. Hosted's version also creates ``messages.from_api_key_id`` (FK to api_keys); cueapi-core omits that column because multi-key scoping is hosted-only. App-layer parity at message.py."
     },
     {
       "path": "alembic/versions/022_messaging_push_retry_columns.py",
-      "reason": "OSS-specific filename. Hosted ships the same migration as 045_messaging_push_retry_columns.py — independent histories. Identical column shape."
+      "reason": "OSS-specific filename. Hosted ships the same migration as 045_messaging_push_retry_columns.py \u2014 independent histories. Identical column shape."
     },
     {
       "path": "worker/message_cleanup.py",
-      "reason": "OSS-specific module. Hosted ships these three cleanup functions (expire_old_messages / cleanup_expired_messages / free_old_idempotency_keys) inside worker/gdpr_cleanup.py alongside hosted-only GDPR-cascade tasks and a dry-run-by-default safety harness gated on GDPR_LAST_BACKUP_AT env var. cueapi-core extracts the messaging-specific cleanups to a dedicated module without the GDPR safety harness — self-hosters opt in to real action via an explicit dry_run=False kwarg."
+      "reason": "OSS-specific module. Hosted ships these three cleanup functions (expire_old_messages / cleanup_expired_messages / free_old_idempotency_keys) inside worker/gdpr_cleanup.py alongside hosted-only GDPR-cascade tasks and a dry-run-by-default safety harness gated on GDPR_LAST_BACKUP_AT env var. cueapi-core extracts the messaging-specific cleanups to a dedicated module without the GDPR safety harness \u2014 self-hosters opt in to real action via an explicit dry_run=False kwarg."
     },
     {
       "path": "alembic/versions/023_messaging_primitive_multi_shell.py",
-      "reason": "OSS-only — slated for hard-cut deprecation in the agent_live_sessions schema convergence (CWS-2026-05-08 P0). Private cueapi never had agent_shells; it has the richer agent_live_sessions table (carries cue_id + task_name + monitor_version + session_token, load-bearing for cmotigtnx Live attestation per CWS-2026-05-08 Item 6). Convergence plan ports private's schema into OSS as the canonical primitive, drops agent_shells. See https://trydock.ai/workspaces/cueapi-agent-live-sessions-port-2026-05-09."
+      "reason": "OSS-only \u2014 slated for hard-cut deprecation in the agent_live_sessions schema convergence (CWS-2026-05-08 P0). Private cueapi never had agent_shells; it has the richer agent_live_sessions table (carries cue_id + task_name + monitor_version + session_token, load-bearing for cmotigtnx Live attestation per CWS-2026-05-08 Item 6). Convergence plan ports private's schema into OSS as the canonical primitive, drops agent_shells. See https://trydock.ai/workspaces/cueapi-agent-live-sessions-port-2026-05-09."
     },
     {
       "path": "app/models/agent_shell.py",
-      "reason": "OSS-only — slated for hard-cut deprecation in the agent_live_sessions schema convergence. See alembic/versions/023_messaging_primitive_multi_shell.py exclusion for full context. Replacement: app/models/agent_live_session.py (will be added as a parity-tracked file when commits 2-5 land)."
+      "reason": "OSS-only \u2014 slated for hard-cut deprecation in the agent_live_sessions schema convergence. See alembic/versions/023_messaging_primitive_multi_shell.py exclusion for full context. Replacement: app/models/agent_live_session.py (will be added as a parity-tracked file when commits 2-5 land)."
     },
     {
       "path": "app/routers/agent_shells.py",
-      "reason": "OSS-only — slated for hard-cut deprecation in the agent_live_sessions schema convergence. See alembic/versions/023_messaging_primitive_multi_shell.py exclusion. Replacement: endpoints under /v1/agents/{ref}/live-sessions/* on a new app/routers/agent_live_sessions.py module (will be added as a parity-tracked file when commits 2-5 land)."
+      "reason": "OSS-only \u2014 slated for hard-cut deprecation in the agent_live_sessions schema convergence. See alembic/versions/023_messaging_primitive_multi_shell.py exclusion. Replacement: endpoints under /v1/agents/{ref}/live-sessions/* on a new app/routers/agent_live_sessions.py module (will be added as a parity-tracked file when commits 2-5 land)."
     }
   ],
-  "multi_key_scoping_omission": "The private monorepo has multi-key scoping (migration 039: api_keys table + per-resource api_key_id columns + audit log). cueapi-core does not. The messaging primitive port intentionally drops the api_key_id columns from agents and messages tables, the from_api_key_id field from MessageResponse, and the api_key_id field from AgentResponse. The messaging service layer never used api_key_id for business logic — it was an audit-only field. If multi-key scoping is ever ported to OSS, a follow-up migration can ADD COLUMN ... api_key_id at that time without breaking existing deployments.",
+  "multi_key_scoping_omission": "The private monorepo has multi-key scoping (migration 039: api_keys table + per-resource api_key_id columns + audit log). cueapi-core does not. The messaging primitive port intentionally drops the api_key_id columns from agents and messages tables, the from_api_key_id field from MessageResponse, and the api_key_id field from AgentResponse. The messaging service layer never used api_key_id for business logic \u2014 it was an audit-only field. If multi-key scoping is ever ported to OSS, a follow-up migration can ADD COLUMN ... api_key_id at that time without breaking existing deployments.",
   "files": {
     "alembic": [
-      {"path": "alembic/env.py", "private_counterpart": "alembic/env.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/001_initial_tables.py", "private_counterpart": "alembic/versions/001_initial_tables.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/002_executions_and_outbox.py", "private_counterpart": "alembic/versions/002_executions_and_outbox.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/003_usage_monthly.py", "private_counterpart": "alembic/versions/003_usage_monthly.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/004_device_codes.py", "private_counterpart": "alembic/versions/004_device_codes.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/005_add_retry_ready_status.py", "private_counterpart": "alembic/versions/005_add_retry_ready_status.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/006_add_outcome_columns.py", "private_counterpart": "alembic/versions/006_add_outcome_columns.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/007_worker_transport.py", "private_counterpart": "alembic/versions/007_worker_transport.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/008_add_webhook_secret.py", "private_counterpart": "alembic/versions/008_add_webhook_secret.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/009_fired_count_and_missed_status.py", "private_counterpart": "alembic/versions/009_fired_count_and_missed_status.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/010_unique_user_cue_name.py", "private_counterpart": "alembic/versions/010_unique_user_cue_name.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/011_add_blog_posts.py", "private_counterpart": "alembic/versions/011_add_blog_posts.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/012_add_content_trends.py", "private_counterpart": "alembic/versions/012_add_content_trends.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/013_add_blog_image_data.py", "private_counterpart": "alembic/versions/013_add_blog_image_data.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/014_add_support_tickets.py", "private_counterpart": "alembic/versions/014_add_support_tickets.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/015_widen_device_code_column.py", "private_counterpart": "alembic/versions/015_widen_device_code_column.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/016_add_on_failure_column.py", "private_counterpart": "alembic/versions/016_add_on_failure_column.py", "last_synced": "2026-04-16"},
-      {"path": "alembic/versions/028_event_emit_primitive.py", "private_counterpart": "alembic/versions/058_event_emit_primitive.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b)", "deviation": "Renumbered 058 → 028 (cueapi-core HEAD was 27 revisions behind private). Schema verbatim."},
-      {"path": "alembic/versions/029_messaging_emission_columns.py", "private_counterpart": "alembic/versions/059_messaging_emission_columns.py", "last_synced": "2026-05-11", "ported_in": "messaging-emission-port (PR-2a)", "deviation": "Renumbered 059 → 029. Schema verbatim: dispatch_priority_bucket + message_dispatch_error + correlation_id columns + partial-where index on correlation_id."},
-      {"path": "alembic/versions/030_message_send_at.py", "private_counterpart": "alembic/versions/047_message_send_at.py", "last_synced": "2026-05-11", "ported_in": "message-send-at-port (private #623)", "deviation": "Renumbered 047 → 030. Schema verbatim: messages.send_at TIMESTAMPTZ NULL + partial index ix_messages_send_at (WHERE send_at IS NOT NULL) built CONCURRENTLY."},
-      {"path": "alembic/versions/031_agents_last_seen_at.py", "private_counterpart": "alembic/versions/048_agents_last_seen_at.py", "last_synced": "2026-05-11", "ported_in": "agents-roster-and-last-seen-at-port (private #630)", "deviation": "Renumbered 048 → 031. Schema verbatim: agents.last_seen_at TIMESTAMPTZ NULL (no index — read path is per-tenant + per-agent, already covered by existing indexes)."},
-      {"path": "alembic/versions/032_events_digested_at.py", "private_counterpart": "alembic/versions/060_events_digested_at.py", "last_synced": "2026-05-11", "ported_in": "phase-4b-digest-batching-port", "deviation": "Renumbered 060 → 032. Schema verbatim: events.digested_at TIMESTAMPTZ NULL + ix_events_undigested partial index (CONCURRENTLY)."},
-      {"path": "alembic/versions/033_subscriptions_inline_body.py", "private_counterpart": "alembic/versions/061_subscriptions_inline_body.py", "last_synced": "2026-05-11", "ported_in": "item-1-inline-body-port", "deviation": "Renumbered 061 → 033. Schema verbatim: subscriptions.inline_body BOOL NOT NULL DEFAULT FALSE."},
-      {"path": "alembic/versions/034_subscriptions_last_acked_event_id.py", "private_counterpart": "alembic/versions/062_subscriptions_last_acked_event_id.py", "last_synced": "2026-05-11", "ported_in": "item-2b-cursor-advance-ack-port", "deviation": "Renumbered 062 → 034. Schema verbatim: subscriptions.last_acked_event_id BIGINT NULL."}
+      {
+        "path": "alembic/env.py",
+        "private_counterpart": "alembic/env.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/001_initial_tables.py",
+        "private_counterpart": "alembic/versions/001_initial_tables.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/002_executions_and_outbox.py",
+        "private_counterpart": "alembic/versions/002_executions_and_outbox.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/003_usage_monthly.py",
+        "private_counterpart": "alembic/versions/003_usage_monthly.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/004_device_codes.py",
+        "private_counterpart": "alembic/versions/004_device_codes.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/005_add_retry_ready_status.py",
+        "private_counterpart": "alembic/versions/005_add_retry_ready_status.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/006_add_outcome_columns.py",
+        "private_counterpart": "alembic/versions/006_add_outcome_columns.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/007_worker_transport.py",
+        "private_counterpart": "alembic/versions/007_worker_transport.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/008_add_webhook_secret.py",
+        "private_counterpart": "alembic/versions/008_add_webhook_secret.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/009_fired_count_and_missed_status.py",
+        "private_counterpart": "alembic/versions/009_fired_count_and_missed_status.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/010_unique_user_cue_name.py",
+        "private_counterpart": "alembic/versions/010_unique_user_cue_name.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/011_add_blog_posts.py",
+        "private_counterpart": "alembic/versions/011_add_blog_posts.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/012_add_content_trends.py",
+        "private_counterpart": "alembic/versions/012_add_content_trends.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/013_add_blog_image_data.py",
+        "private_counterpart": "alembic/versions/013_add_blog_image_data.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/014_add_support_tickets.py",
+        "private_counterpart": "alembic/versions/014_add_support_tickets.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/015_widen_device_code_column.py",
+        "private_counterpart": "alembic/versions/015_widen_device_code_column.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/016_add_on_failure_column.py",
+        "private_counterpart": "alembic/versions/016_add_on_failure_column.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "alembic/versions/028_event_emit_primitive.py",
+        "private_counterpart": "alembic/versions/058_event_emit_primitive.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "event-emit-primitive-port (PR-1b)",
+        "deviation": "Renumbered 058 \u2192 028 (cueapi-core HEAD was 27 revisions behind private). Schema verbatim."
+      },
+      {
+        "path": "alembic/versions/029_messaging_emission_columns.py",
+        "private_counterpart": "alembic/versions/059_messaging_emission_columns.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "messaging-emission-port (PR-2a)",
+        "deviation": "Renumbered 059 \u2192 029. Schema verbatim: dispatch_priority_bucket + message_dispatch_error + correlation_id columns + partial-where index on correlation_id."
+      },
+      {
+        "path": "alembic/versions/030_message_send_at.py",
+        "private_counterpart": "alembic/versions/047_message_send_at.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "message-send-at-port (private #623)",
+        "deviation": "Renumbered 047 \u2192 030. Schema verbatim: messages.send_at TIMESTAMPTZ NULL + partial index ix_messages_send_at (WHERE send_at IS NOT NULL) built CONCURRENTLY."
+      },
+      {
+        "path": "alembic/versions/031_agents_last_seen_at.py",
+        "private_counterpart": "alembic/versions/048_agents_last_seen_at.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "agents-roster-and-last-seen-at-port (private #630)",
+        "deviation": "Renumbered 048 \u2192 031. Schema verbatim: agents.last_seen_at TIMESTAMPTZ NULL (no index \u2014 read path is per-tenant + per-agent, already covered by existing indexes)."
+      },
+      {
+        "path": "alembic/versions/032_events_digested_at.py",
+        "private_counterpart": "alembic/versions/060_events_digested_at.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "phase-4b-digest-batching-port",
+        "deviation": "Renumbered 060 \u2192 032. Schema verbatim: events.digested_at TIMESTAMPTZ NULL + ix_events_undigested partial index (CONCURRENTLY)."
+      },
+      {
+        "path": "alembic/versions/033_subscriptions_inline_body.py",
+        "private_counterpart": "alembic/versions/061_subscriptions_inline_body.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "item-1-inline-body-port",
+        "deviation": "Renumbered 061 \u2192 033. Schema verbatim: subscriptions.inline_body BOOL NOT NULL DEFAULT FALSE."
+      },
+      {
+        "path": "alembic/versions/034_subscriptions_last_acked_event_id.py",
+        "private_counterpart": "alembic/versions/062_subscriptions_last_acked_event_id.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "item-2b-cursor-advance-ack-port",
+        "deviation": "Renumbered 062 \u2192 034. Schema verbatim: subscriptions.last_acked_event_id BIGINT NULL."
+      }
     ],
     "app_core": [
-      {"path": "app/__init__.py", "private_counterpart": "app/__init__.py", "last_synced": "2026-04-16"},
-      {"path": "app/auth.py", "private_counterpart": "app/auth.py", "last_synced": "2026-04-16"},
-      {"path": "app/config.py", "private_counterpart": "app/config.py", "last_synced": "2026-04-16"},
-      {"path": "app/database.py", "private_counterpart": "app/database.py", "last_synced": "2026-04-16"},
-      {"path": "app/main.py", "private_counterpart": "app/main.py", "last_synced": "2026-05-11", "ported_in": "bodyverify-layer-1-5-universal-middleware", "deviation": "BodyVerify port: VerifyEchoMiddleware registered between CORS/RequestId and RateLimit. Private has additional middlewares (SecurityHeaders, AccessAudit) hosted-only; ordering preserved relative to shared middlewares."},
-      {"path": "app/redis.py", "private_counterpart": "app/redis.py", "last_synced": "2026-04-16"}
+      {
+        "path": "app/__init__.py",
+        "private_counterpart": "app/__init__.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/auth.py",
+        "private_counterpart": "app/auth.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/config.py",
+        "private_counterpart": "app/config.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/database.py",
+        "private_counterpart": "app/database.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/main.py",
+        "private_counterpart": "app/main.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "bodyverify-layer-1-5-universal-middleware",
+        "deviation": "BodyVerify port: VerifyEchoMiddleware registered between CORS/RequestId and RateLimit. Private has additional middlewares (SecurityHeaders, AccessAudit) hosted-only; ordering preserved relative to shared middlewares."
+      },
+      {
+        "path": "app/redis.py",
+        "private_counterpart": "app/redis.py",
+        "last_synced": "2026-04-16"
+      }
     ],
     "middleware": [
-      {"path": "app/middleware/__init__.py", "private_counterpart": "app/middleware/__init__.py", "last_synced": "2026-04-16"},
-      {"path": "app/middleware/body_limit.py", "private_counterpart": "app/middleware/body_limit.py", "last_synced": "2026-04-16"},
-      {"path": "app/middleware/rate_limit.py", "private_counterpart": "app/middleware/rate_limit.py", "last_synced": "2026-04-16"},
-      {"path": "app/middleware/request_id.py", "private_counterpart": "app/middleware/request_id.py", "last_synced": "2026-04-16"},
-      {"path": "app/middleware/verify_echo.py", "private_counterpart": "app/middleware/verify_echo.py", "last_synced": "2026-05-11", "ported_in": "bodyverify-layer-1-5-universal-middleware"}
+      {
+        "path": "app/middleware/__init__.py",
+        "private_counterpart": "app/middleware/__init__.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/middleware/body_limit.py",
+        "private_counterpart": "app/middleware/body_limit.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/middleware/rate_limit.py",
+        "private_counterpart": "app/middleware/rate_limit.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/middleware/request_id.py",
+        "private_counterpart": "app/middleware/request_id.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/middleware/verify_echo.py",
+        "private_counterpart": "app/middleware/verify_echo.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "bodyverify-layer-1-5-universal-middleware"
+      }
     ],
     "models": [
-      {"path": "app/models/__init__.py", "private_counterpart": "app/models/__init__.py", "last_synced": "2026-04-16"},
-      {"path": "app/models/alert.py", "private_counterpart": "app/models/alert.py", "last_synced": "2026-04-17"},
-      {"path": "app/models/cue.py", "private_counterpart": "app/models/cue.py", "last_synced": "2026-04-16"},
-      {"path": "app/models/device_code.py", "private_counterpart": "app/models/device_code.py", "last_synced": "2026-04-16"},
-      {"path": "app/models/dispatch_outbox.py", "private_counterpart": "app/models/dispatch_outbox.py", "last_synced": "2026-04-16"},
-      {"path": "app/models/execution.py", "private_counterpart": "app/models/execution.py", "last_synced": "2026-04-16"},
-      {"path": "app/models/usage_monthly.py", "private_counterpart": "app/models/usage_monthly.py", "last_synced": "2026-04-16"},
-      {"path": "app/models/user.py", "private_counterpart": "app/models/user.py", "last_synced": "2026-04-16"},
-      {"path": "app/models/worker.py", "private_counterpart": "app/models/worker.py", "last_synced": "2026-04-16"},
-      {"path": "app/models/agent.py", "private_counterpart": "app/models/agent.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
-      {"path": "app/models/message.py", "private_counterpart": "app/models/message.py", "last_synced": "2026-05-11", "ported_in": "messaging-primitive-port + messaging-emission-port (PR-2a)", "deviation": "from_api_key_id column omitted (multi-key scoping is hosted-only). PR-2a additions verbatim: dispatch_priority_bucket + message_dispatch_error + correlation_id + ix_messages_correlation_id partial index."},
-      {"path": "app/models/usage_messages_monthly.py", "private_counterpart": "app/models/usage_messages_monthly.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
-      {"path": "app/models/event.py", "private_counterpart": "app/models/event.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b) + phase-4b-digest-batching-port", "deviation": "Phase 4b addition: digested_at column + ix_events_undigested partial index mirror."},
-      {"path": "app/models/subscription.py", "private_counterpart": "app/models/subscription.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b) + item-1-inline-body-port + item-2b-cursor-advance-ack-port", "deviation": "Item 1 addition: inline_body BOOL column (default False) for opt-in body embedding. Item 2(b) addition: last_acked_event_id BIGINT NULL watermark column for ack-vs-dispatched distinction."}
+      {
+        "path": "app/models/__init__.py",
+        "private_counterpart": "app/models/__init__.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/models/alert.py",
+        "private_counterpart": "app/models/alert.py",
+        "last_synced": "2026-04-17"
+      },
+      {
+        "path": "app/models/cue.py",
+        "private_counterpart": "app/models/cue.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/models/device_code.py",
+        "private_counterpart": "app/models/device_code.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/models/dispatch_outbox.py",
+        "private_counterpart": "app/models/dispatch_outbox.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/models/execution.py",
+        "private_counterpart": "app/models/execution.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/models/usage_monthly.py",
+        "private_counterpart": "app/models/usage_monthly.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/models/user.py",
+        "private_counterpart": "app/models/user.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/models/worker.py",
+        "private_counterpart": "app/models/worker.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/models/agent.py",
+        "private_counterpart": "app/models/agent.py",
+        "last_synced": "2026-05-01",
+        "ported_in": "messaging-primitive-port"
+      },
+      {
+        "path": "app/models/message.py",
+        "private_counterpart": "app/models/message.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "messaging-primitive-port + messaging-emission-port (PR-2a)",
+        "deviation": "from_api_key_id column omitted (multi-key scoping is hosted-only). PR-2a additions verbatim: dispatch_priority_bucket + message_dispatch_error + correlation_id + ix_messages_correlation_id partial index."
+      },
+      {
+        "path": "app/models/usage_messages_monthly.py",
+        "private_counterpart": "app/models/usage_messages_monthly.py",
+        "last_synced": "2026-05-01",
+        "ported_in": "messaging-primitive-port"
+      },
+      {
+        "path": "app/models/event.py",
+        "private_counterpart": "app/models/event.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "event-emit-primitive-port (PR-1b) + phase-4b-digest-batching-port",
+        "deviation": "Phase 4b addition: digested_at column + ix_events_undigested partial index mirror."
+      },
+      {
+        "path": "app/models/subscription.py",
+        "private_counterpart": "app/models/subscription.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "event-emit-primitive-port (PR-1b) + item-1-inline-body-port + item-2b-cursor-advance-ack-port",
+        "deviation": "Item 1 addition: inline_body BOOL column (default False) for opt-in body embedding. Item 2(b) addition: last_acked_event_id BIGINT NULL watermark column for ack-vs-dispatched distinction."
+      }
     ],
     "routers": [
-      {"path": "app/routers/__init__.py", "private_counterpart": "app/routers/__init__.py", "last_synced": "2026-04-16"},
-      {"path": "app/routers/alerts.py", "private_counterpart": "app/routers/alerts.py", "last_synced": "2026-04-17"},
-      {"path": "app/routers/auth_routes.py", "private_counterpart": "app/routers/auth_routes.py", "last_synced": "2026-04-16"},
-      {"path": "app/routers/cues.py", "private_counterpart": "app/routers/cues.py", "last_synced": "2026-05-11", "ported_in": "bodyverify-layer-1-substrate-echo-back", "deviation": "BodyVerify port: fire_cue handler integrates apply_verify_echo on response. OSS FireRequest carries only send_at; private's payload_override (dict with user-supplied string content carrying corruption-vector) is hosted-only. Metachar-class parametrization tests on the fire path are intentionally private-only — substrate helper coverage is exercised via messages endpoint tests."},
-      {"path": "app/routers/device_code.py", "private_counterpart": "app/routers/device_code.py", "last_synced": "2026-04-16"},
-      {"path": "app/routers/echo.py", "private_counterpart": "app/routers/echo.py", "last_synced": "2026-04-16"},
-      {"path": "app/routers/executions.py", "private_counterpart": "app/routers/executions.py", "last_synced": "2026-04-16"},
-      {"path": "app/routers/health.py", "private_counterpart": "app/routers/health.py", "last_synced": "2026-04-16"},
-      {"path": "app/routers/usage.py", "private_counterpart": "app/routers/usage.py", "last_synced": "2026-04-16"},
-      {"path": "app/routers/webhook_secret.py", "private_counterpart": "app/routers/webhook_secret.py", "last_synced": "2026-04-16"},
-      {"path": "app/routers/workers.py", "private_counterpart": "app/routers/workers.py", "last_synced": "2026-04-16"},
-      {"path": "app/routers/agents.py", "private_counterpart": "app/routers/agents.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
-      {"path": "app/routers/messages.py", "private_counterpart": "app/routers/messages.py", "last_synced": "2026-05-11", "ported_in": "messaging-primitive-port + messaging-emission-port (PR-2a) + bodyverify-layer-1-substrate-echo-back", "deviation": "PR-2a addition: correlation_id passthrough to create_message service. BodyVerify port: send_message handler integrates apply_verify_echo helper on response — identical shape to private; create_message tuple unpack is 3-element OSS vs 4-element private (private adds bcc_emitted)."},
-      {"path": "app/routers/events.py", "private_counterpart": "app/routers/events.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b) + long-poll-port (PR-1b spec Q1) + item-1-inline-body-port + item-2b-cursor-advance-ack-port", "deviation": "Long-poll uses internal polling loop rather than PostgreSQL LISTEN/NOTIFY per impl trade-off; wire contract identical. Future LISTEN/NOTIFY swap tracked at cmp0m7n7r (private) — file OSS counterpart row when prioritized. Item 1 addition: SubscriptionCreate accepts inline_body field; SubscriptionResponse surfaces it. Item 2(b) addition: PATCH /subscriptions/{id}/ack endpoint + AckSubscriptionRequest schema + _advance_ack_after_pull helper + last_acked_event_id surfaced on SubscriptionResponse."}
+      {
+        "path": "app/routers/__init__.py",
+        "private_counterpart": "app/routers/__init__.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/routers/alerts.py",
+        "private_counterpart": "app/routers/alerts.py",
+        "last_synced": "2026-04-17"
+      },
+      {
+        "path": "app/routers/auth_routes.py",
+        "private_counterpart": "app/routers/auth_routes.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/routers/cues.py",
+        "private_counterpart": "app/routers/cues.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "bodyverify-layer-1-substrate-echo-back",
+        "deviation": "BodyVerify port: fire_cue handler integrates apply_verify_echo on response. OSS FireRequest carries only send_at; private's payload_override (dict with user-supplied string content carrying corruption-vector) is hosted-only. Metachar-class parametrization tests on the fire path are intentionally private-only \u2014 substrate helper coverage is exercised via messages endpoint tests. BodyVerify hotfix: helper takes body_text=None on OSS (no string user-content field on FireRequest)."
+      },
+      {
+        "path": "app/routers/device_code.py",
+        "private_counterpart": "app/routers/device_code.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/routers/echo.py",
+        "private_counterpart": "app/routers/echo.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/routers/executions.py",
+        "private_counterpart": "app/routers/executions.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/routers/health.py",
+        "private_counterpart": "app/routers/health.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/routers/usage.py",
+        "private_counterpart": "app/routers/usage.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/routers/webhook_secret.py",
+        "private_counterpart": "app/routers/webhook_secret.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/routers/workers.py",
+        "private_counterpart": "app/routers/workers.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/routers/agents.py",
+        "private_counterpart": "app/routers/agents.py",
+        "last_synced": "2026-05-01",
+        "ported_in": "messaging-primitive-port"
+      },
+      {
+        "path": "app/routers/messages.py",
+        "private_counterpart": "app/routers/messages.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "messaging-primitive-port + messaging-emission-port (PR-2a) + bodyverify-layer-1-substrate-echo-back",
+        "deviation": "PR-2a addition: correlation_id passthrough to create_message service. BodyVerify port: send_message handler integrates apply_verify_echo helper on response \u2014 identical shape to private; create_message tuple unpack is 3-element OSS vs 4-element private (private adds bcc_emitted). BodyVerify hotfix (2026-05-11): apply_verify_echo signature changed from parsed_body to body_text; handler passes body.body STRING (spec lock)."
+      },
+      {
+        "path": "app/routers/events.py",
+        "private_counterpart": "app/routers/events.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "event-emit-primitive-port (PR-1b) + long-poll-port (PR-1b spec Q1) + item-1-inline-body-port + item-2b-cursor-advance-ack-port",
+        "deviation": "Long-poll uses internal polling loop rather than PostgreSQL LISTEN/NOTIFY per impl trade-off; wire contract identical. Future LISTEN/NOTIFY swap tracked at cmp0m7n7r (private) \u2014 file OSS counterpart row when prioritized. Item 1 addition: SubscriptionCreate accepts inline_body field; SubscriptionResponse surfaces it. Item 2(b) addition: PATCH /subscriptions/{id}/ack endpoint + AckSubscriptionRequest schema + _advance_ack_after_pull helper + last_acked_event_id surfaced on SubscriptionResponse."
+      }
     ],
     "schemas": [
-      {"path": "app/schemas/__init__.py", "private_counterpart": "app/schemas/__init__.py", "last_synced": "2026-04-16"},
-      {"path": "app/schemas/alert.py", "private_counterpart": "app/schemas/alert.py", "last_synced": "2026-04-17"},
-      {"path": "app/schemas/cue.py", "private_counterpart": "app/schemas/cue.py", "last_synced": "2026-04-16"},
-      {"path": "app/schemas/execution.py", "private_counterpart": "app/schemas/execution.py", "last_synced": "2026-04-16"},
-      {"path": "app/schemas/outcome.py", "private_counterpart": "app/schemas/outcome.py", "last_synced": "2026-04-16"},
-      {"path": "app/schemas/worker.py", "private_counterpart": "app/schemas/worker.py", "last_synced": "2026-04-16"},
-      {"path": "app/schemas/agent.py", "private_counterpart": "app/schemas/agent.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "api_key_id field omitted from AgentResponse (multi-key scoping is hosted-only)"},
-      {"path": "app/schemas/message.py", "private_counterpart": "app/schemas/message.py", "last_synced": "2026-05-11", "ported_in": "messaging-primitive-port + messaging-emission-port (PR-2a)", "deviation": "from_api_key_id field omitted from MessageResponse (multi-key scoping is hosted-only). PR-2a additions verbatim: correlation_id on MessageCreate; correlation_id + dispatch_priority_bucket + message_dispatch_error on MessageResponse."}
+      {
+        "path": "app/schemas/__init__.py",
+        "private_counterpart": "app/schemas/__init__.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/schemas/alert.py",
+        "private_counterpart": "app/schemas/alert.py",
+        "last_synced": "2026-04-17"
+      },
+      {
+        "path": "app/schemas/cue.py",
+        "private_counterpart": "app/schemas/cue.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/schemas/execution.py",
+        "private_counterpart": "app/schemas/execution.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/schemas/outcome.py",
+        "private_counterpart": "app/schemas/outcome.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/schemas/worker.py",
+        "private_counterpart": "app/schemas/worker.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/schemas/agent.py",
+        "private_counterpart": "app/schemas/agent.py",
+        "last_synced": "2026-05-01",
+        "ported_in": "messaging-primitive-port",
+        "deviation": "api_key_id field omitted from AgentResponse (multi-key scoping is hosted-only)"
+      },
+      {
+        "path": "app/schemas/message.py",
+        "private_counterpart": "app/schemas/message.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "messaging-primitive-port + messaging-emission-port (PR-2a)",
+        "deviation": "from_api_key_id field omitted from MessageResponse (multi-key scoping is hosted-only). PR-2a additions verbatim: correlation_id on MessageCreate; correlation_id + dispatch_priority_bucket + message_dispatch_error on MessageResponse."
+      }
     ],
     "services": [
-      {"path": "app/services/__init__.py", "private_counterpart": "app/services/__init__.py", "last_synced": "2026-04-16"},
-      {"path": "app/services/alert_service.py", "private_counterpart": "app/services/alert_service.py", "last_synced": "2026-04-17"},
-      {"path": "app/services/alert_webhook.py", "private_counterpart": "app/services/alert_webhook.py", "last_synced": "2026-04-17"},
-      {"path": "app/services/cue_service.py", "private_counterpart": "app/services/cue_service.py", "last_synced": "2026-04-16"},
-      {"path": "app/services/device_code_service.py", "private_counterpart": "app/services/device_code_service.py", "last_synced": "2026-04-16"},
-      {"path": "app/services/outcome_service.py", "private_counterpart": "app/services/outcome_service.py", "last_synced": "2026-04-16"},
-      {"path": "app/services/usage_service.py", "private_counterpart": "app/services/usage_service.py", "last_synced": "2026-04-16"},
-      {"path": "app/services/webhook.py", "private_counterpart": "app/services/webhook.py", "last_synced": "2026-04-16"},
-      {"path": "app/services/agent_service.py", "private_counterpart": "app/services/agent_service.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "user.api_key_id reference removed (multi-key scoping is hosted-only)"},
-      {"path": "app/services/inbox_service.py", "private_counterpart": "app/services/inbox_service.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
-      {"path": "app/services/message_classification.py", "private_counterpart": "app/services/message_classification.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
-      {"path": "app/services/message_delivery.py", "private_counterpart": "app/services/message_delivery.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
-      {"path": "app/services/message_service.py", "private_counterpart": "app/services/message_service.py", "last_synced": "2026-05-11", "ported_in": "messaging-primitive-port + messaging-emission-port (PR-2a) + item-1-inline-body-port", "deviation": "user.api_key_id and msg.from_api_key_id references removed (hosted-only). PR-2a additions verbatim: correlation_id kwarg + dispatch_priority_bucket stamp + emit_event call (best-effort try/except) in create_message; correlation_id + dispatch_priority_bucket + message_dispatch_error surfaced in to_response_dict. Item 1 addition: body_text=body forwarded to emit_event so subscription inline_body=True opt-ins receive embedded body."},
-      {"path": "app/services/message_usage_service.py", "private_counterpart": "app/services/message_usage_service.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
-      {"path": "app/services/events_service.py", "private_counterpart": "app/services/events_service.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b) + phase-4b-digest-batching-port + item-2a-turn-pass-port + item-1-inline-body-port + item-2b-cursor-advance-ack-port", "deviation": "Phase 4b addition: `message.digest` added to KNOWN_EVENT_TYPES registry. Item 2(a) addition: `turn.pass` added — META-only envelope for inbox-watcher recipes. Item 1 addition: INLINE_BODY_MAX_BYTES constant (32KB) + `_maybe_embed_body` pure helper + emit_event accepts body_text=None kwarg + create_subscription accepts inline_body=False kwarg. Body embedding gated on active subscription's inline_body=True; size guardrail with body_omitted flag for >32KB bodies. Item 2(b) addition: advance_ack_watermark + ack_subscription service helpers with watermark monotonicity (never rewinds)."}
+      {
+        "path": "app/services/__init__.py",
+        "private_counterpart": "app/services/__init__.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/services/alert_service.py",
+        "private_counterpart": "app/services/alert_service.py",
+        "last_synced": "2026-04-17"
+      },
+      {
+        "path": "app/services/alert_webhook.py",
+        "private_counterpart": "app/services/alert_webhook.py",
+        "last_synced": "2026-04-17"
+      },
+      {
+        "path": "app/services/cue_service.py",
+        "private_counterpart": "app/services/cue_service.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/services/device_code_service.py",
+        "private_counterpart": "app/services/device_code_service.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/services/outcome_service.py",
+        "private_counterpart": "app/services/outcome_service.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/services/usage_service.py",
+        "private_counterpart": "app/services/usage_service.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/services/webhook.py",
+        "private_counterpart": "app/services/webhook.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/services/agent_service.py",
+        "private_counterpart": "app/services/agent_service.py",
+        "last_synced": "2026-05-01",
+        "ported_in": "messaging-primitive-port",
+        "deviation": "user.api_key_id reference removed (multi-key scoping is hosted-only)"
+      },
+      {
+        "path": "app/services/inbox_service.py",
+        "private_counterpart": "app/services/inbox_service.py",
+        "last_synced": "2026-05-01",
+        "ported_in": "messaging-primitive-port"
+      },
+      {
+        "path": "app/services/message_classification.py",
+        "private_counterpart": "app/services/message_classification.py",
+        "last_synced": "2026-05-01",
+        "ported_in": "messaging-primitive-port"
+      },
+      {
+        "path": "app/services/message_delivery.py",
+        "private_counterpart": "app/services/message_delivery.py",
+        "last_synced": "2026-05-01",
+        "ported_in": "messaging-primitive-port"
+      },
+      {
+        "path": "app/services/message_service.py",
+        "private_counterpart": "app/services/message_service.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "messaging-primitive-port + messaging-emission-port (PR-2a) + item-1-inline-body-port",
+        "deviation": "user.api_key_id and msg.from_api_key_id references removed (hosted-only). PR-2a additions verbatim: correlation_id kwarg + dispatch_priority_bucket stamp + emit_event call (best-effort try/except) in create_message; correlation_id + dispatch_priority_bucket + message_dispatch_error surfaced in to_response_dict. Item 1 addition: body_text=body forwarded to emit_event so subscription inline_body=True opt-ins receive embedded body."
+      },
+      {
+        "path": "app/services/message_usage_service.py",
+        "private_counterpart": "app/services/message_usage_service.py",
+        "last_synced": "2026-05-01",
+        "ported_in": "messaging-primitive-port"
+      },
+      {
+        "path": "app/services/events_service.py",
+        "private_counterpart": "app/services/events_service.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "event-emit-primitive-port (PR-1b) + phase-4b-digest-batching-port + item-2a-turn-pass-port + item-1-inline-body-port + item-2b-cursor-advance-ack-port",
+        "deviation": "Phase 4b addition: `message.digest` added to KNOWN_EVENT_TYPES registry. Item 2(a) addition: `turn.pass` added \u2014 META-only envelope for inbox-watcher recipes. Item 1 addition: INLINE_BODY_MAX_BYTES constant (32KB) + `_maybe_embed_body` pure helper + emit_event accepts body_text=None kwarg + create_subscription accepts inline_body=False kwarg. Body embedding gated on active subscription's inline_body=True; size guardrail with body_omitted flag for >32KB bodies. Item 2(b) addition: advance_ack_watermark + ack_subscription service helpers with watermark monotonicity (never rewinds)."
+      }
     ],
     "utils": [
-      {"path": "app/utils/__init__.py", "private_counterpart": "app/utils/__init__.py", "last_synced": "2026-04-16"},
-      {"path": "app/utils/auth_rate_limit.py", "private_counterpart": "app/utils/auth_rate_limit.py", "last_synced": "2026-04-16"},
-      {"path": "app/utils/ids.py", "private_counterpart": "app/utils/ids.py", "last_synced": "2026-04-16"},
-      {"path": "app/utils/logging.py", "private_counterpart": "app/utils/logging.py", "last_synced": "2026-04-16"},
-      {"path": "app/utils/session.py", "private_counterpart": "app/utils/session.py", "last_synced": "2026-04-16"},
-      {"path": "app/utils/signing.py", "private_counterpart": "app/utils/signing.py", "last_synced": "2026-04-16"},
-      {"path": "app/utils/templates.py", "private_counterpart": "app/utils/templates.py", "last_synced": "2026-04-16"},
-      {"path": "app/utils/url_validation.py", "private_counterpart": "app/utils/url_validation.py", "last_synced": "2026-04-16"},
-      {"path": "app/utils/retry_after.py", "private_counterpart": "app/utils/retry_after.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
-      {"path": "app/utils/slug.py", "private_counterpart": "app/utils/slug.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
-      {"path": "app/utils/verify_echo.py", "private_counterpart": "app/utils/verify_echo.py", "last_synced": "2026-05-11", "ported_in": "bodyverify-layer-1-substrate-echo-back"}
+      {
+        "path": "app/utils/__init__.py",
+        "private_counterpart": "app/utils/__init__.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/utils/auth_rate_limit.py",
+        "private_counterpart": "app/utils/auth_rate_limit.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/utils/ids.py",
+        "private_counterpart": "app/utils/ids.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/utils/logging.py",
+        "private_counterpart": "app/utils/logging.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/utils/session.py",
+        "private_counterpart": "app/utils/session.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/utils/signing.py",
+        "private_counterpart": "app/utils/signing.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/utils/templates.py",
+        "private_counterpart": "app/utils/templates.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/utils/url_validation.py",
+        "private_counterpart": "app/utils/url_validation.py",
+        "last_synced": "2026-04-16"
+      },
+      {
+        "path": "app/utils/retry_after.py",
+        "private_counterpart": "app/utils/retry_after.py",
+        "last_synced": "2026-05-01",
+        "ported_in": "messaging-primitive-port"
+      },
+      {
+        "path": "app/utils/slug.py",
+        "private_counterpart": "app/utils/slug.py",
+        "last_synced": "2026-05-01",
+        "ported_in": "messaging-primitive-port"
+      },
+      {
+        "path": "app/utils/verify_echo.py",
+        "private_counterpart": "app/utils/verify_echo.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "bodyverify-layer-1-substrate-echo-back + bodyverify-string-shape-hotfix"
+      }
     ],
     "worker": [
-      {"path": "worker/tasks.py", "private_counterpart": "worker/tasks.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port", "deviation": "ports messaging-specific functions only (deliver_message_task, retry_message_task, _check_concurrent_cap_or_recycle, _release_concurrent, _load_message_context, _claim_message, _route_attempt_outcome) — does not port other private deltas (catch_up_policy, heartbeat trigger, etc., scheduled for a follow-up phase)"},
-      {"path": "worker/poller.py", "private_counterpart": "worker/poller.py", "last_synced": "2026-05-11", "ported_in": "messaging-primitive-port + phase-4b-digest-batching-port", "deviation": "ports messaging-specific changes only (recover_stale_message_deliveries function + dispatch_outbox scheduled_at filter + deliver_message/retry_message routing). Phase 4b addition: _last_digest_emit guard + DIGEST_PERIOD_SECONDS-cadenced emit_digests call wrapped in try/except."},
-      {"path": "worker/subscription_dispatcher.py", "private_counterpart": "worker/subscription_dispatcher.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b) + phase-4a-policy-port + phase-4c-observability-port + item-2b-cursor-advance-ack-port", "deviation": "Phase 4a additions verbatim: redis=None kwarg + apply_tier_policy pre-deliver filter + stamp_dispatch_markers post-deliver side effect + watermark math caveat for deferred events. Phase 4c addition: per-cycle tier_fired_counts + tier_deferred_counts dicts + structured `subscription_dispatch_cycle` log emission (signal-to-noise gated on total>0). Item 2(b) addition: successful webhook fire UPDATE also sets last_acked_event_id=new_watermark (treating successful delivery as ack). Backward-compat default (redis=None) preserves v1 behavior."},
-      {"path": "worker/subscription_dispatcher_policy.py", "private_counterpart": "worker/subscription_dispatcher_policy.py", "last_synced": "2026-05-11", "ported_in": "phase-4a-policy-port"},
-      {"path": "worker/digest_emitter.py", "private_counterpart": "worker/digest_emitter.py", "last_synced": "2026-05-11", "ported_in": "phase-4b-digest-batching-port"}
+      {
+        "path": "worker/tasks.py",
+        "private_counterpart": "worker/tasks.py",
+        "last_synced": "2026-05-01",
+        "ported_in": "messaging-primitive-port",
+        "deviation": "ports messaging-specific functions only (deliver_message_task, retry_message_task, _check_concurrent_cap_or_recycle, _release_concurrent, _load_message_context, _claim_message, _route_attempt_outcome) \u2014 does not port other private deltas (catch_up_policy, heartbeat trigger, etc., scheduled for a follow-up phase)"
+      },
+      {
+        "path": "worker/poller.py",
+        "private_counterpart": "worker/poller.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "messaging-primitive-port + phase-4b-digest-batching-port",
+        "deviation": "ports messaging-specific changes only (recover_stale_message_deliveries function + dispatch_outbox scheduled_at filter + deliver_message/retry_message routing). Phase 4b addition: _last_digest_emit guard + DIGEST_PERIOD_SECONDS-cadenced emit_digests call wrapped in try/except."
+      },
+      {
+        "path": "worker/subscription_dispatcher.py",
+        "private_counterpart": "worker/subscription_dispatcher.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "event-emit-primitive-port (PR-1b) + phase-4a-policy-port + phase-4c-observability-port + item-2b-cursor-advance-ack-port",
+        "deviation": "Phase 4a additions verbatim: redis=None kwarg + apply_tier_policy pre-deliver filter + stamp_dispatch_markers post-deliver side effect + watermark math caveat for deferred events. Phase 4c addition: per-cycle tier_fired_counts + tier_deferred_counts dicts + structured `subscription_dispatch_cycle` log emission (signal-to-noise gated on total>0). Item 2(b) addition: successful webhook fire UPDATE also sets last_acked_event_id=new_watermark (treating successful delivery as ack). Backward-compat default (redis=None) preserves v1 behavior."
+      },
+      {
+        "path": "worker/subscription_dispatcher_policy.py",
+        "private_counterpart": "worker/subscription_dispatcher_policy.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "phase-4a-policy-port"
+      },
+      {
+        "path": "worker/digest_emitter.py",
+        "private_counterpart": "worker/digest_emitter.py",
+        "last_synced": "2026-05-11",
+        "ported_in": "phase-4b-digest-batching-port"
+      }
     ]
   }
 }

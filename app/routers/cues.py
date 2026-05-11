@@ -167,7 +167,10 @@ async def fire_cue(
         "status": "pending", "triggered_by": "manual_fire",
     }
     # BodyVerify Layer 1: opt-in echo-back when caller sets
-    # X-CueAPI-Verify-Echo: true. Helper returns {} when header absent
-    # so non-opted clients see zero shape change.
-    response_content.update(apply_verify_echo(request=request, parsed_body=body))
+    # X-CueAPI-Verify-Echo: true. OSS FireRequest carries only send_at
+    # (datetime) — no string user-content field to echo. Helper returns
+    # body_received=None + sha256 of empty bytes when header set, or {} when
+    # absent. Once OSS adds a content-bearing field (e.g. payload_override
+    # for parity), update this to extract the string per spec.
+    response_content.update(apply_verify_echo(request=request, body_text=None))
     return response_content
