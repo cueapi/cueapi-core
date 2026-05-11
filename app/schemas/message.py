@@ -40,6 +40,18 @@ class MessageCreate(BaseModel):
         description="Decoupled reply target. Null = reply to `from` (default).",
     )
     metadata: Dict = Field(default_factory=dict)
+    correlation_id: Optional[str] = Field(
+        default=None,
+        max_length=255,
+        description=(
+            "PR-2a-OSS D3 RPC framing: sender-supplied opaque string for "
+            "programmatic request/response matching, independent of "
+            "reply_to chains. The recipient's runtime can match the "
+            "reply back to the original outbound by carrying this "
+            "value through. Stored on the messages row + indexed for "
+            "lookup. Null by default."
+        ),
+    )
 
 
 class FromAgentRef(BaseModel):
@@ -81,6 +93,10 @@ class MessageResponse(BaseModel):
     acked_at: Optional[datetime]
     failed_at: Optional[datetime]
     expires_at: datetime
+    # PR-2a-OSS additions — D3 RPC framing + dispatcher state surface.
+    correlation_id: Optional[str] = None
+    dispatch_priority_bucket: Optional[int] = None
+    message_dispatch_error: Optional[str] = None
 
 
 class MessageListResponse(BaseModel):
