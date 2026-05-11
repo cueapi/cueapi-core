@@ -38,6 +38,7 @@ existing pattern — don't leak existence of other users' agents).
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import urlparse
 from uuid import UUID
@@ -282,6 +283,69 @@ async def delete_subscription_endpoint(
     return {"detached": True}
 
 
+# Long-poll constants — tunable for tests + future optimization.
+LONG_POLL_MAX_SECONDS = 30.0
+LONG_POLL_INTERNAL_INTERVAL_SECONDS = 1.0
+
+
+async def _run_long_poll_wait(
+    db: AsyncSession,
+    *,
+    recipient_agent_id: str,
+    since: int,
+    limit: int,
+    event_type: Optional[str],
+) -> tuple[list, Optional[int], bool]:
+    """Hold the connection open polling for new events until the
+    window elapses OR an event arrives.
+
+    Extracted as a pure async helper for two reasons:
+
+    1. **Coverage** — pytest-cov on ASGI-dispatched paths doesn't
+       reliably trace branches through FastAPI's async route
+       wrapping. Pulling the loop body into a top-level coroutine
+       makes coverage tracing deterministic + lets us unit-test the
+       loop directly without spinning up the HTTP client.
+    2. **Testability** — direct ``await _run_long_poll_wait(...)``
+       calls are simpler than orchestrating async background-event
+       inserts via the TestClient. The route stays a thin wrapper.
+
+    Returns ``(events, next_cursor, has_more)`` — same shape as
+    ``pull_events``. Empty list + None cursor + False has_more if
+    the window elapsed without new events.
+
+    Window + cadence read from module-level constants
+    (``LONG_POLL_MAX_SECONDS`` + ``LONG_POLL_INTERNAL_INTERVAL_SECONDS``)
+    so tests can monkeypatch shorter values without function
+    signature churn.
+    """
+    deadline = asyncio.get_event_loop().time() + LONG_POLL_MAX_SECONDS
+    events: list = []
+    next_cursor: Optional[int] = None
+    has_more = False
+
+    while True:
+        remaining = deadline - asyncio.get_event_loop().time()
+        if remaining <= 0:
+            break
+        # Sleep up to the internal interval (or remaining time,
+        # whichever is shorter) before re-polling.
+        await asyncio.sleep(
+            min(LONG_POLL_INTERNAL_INTERVAL_SECONDS, remaining)
+        )
+        events, next_cursor, has_more = await pull_events(
+            db,
+            recipient_agent_id=recipient_agent_id,
+            since=since,
+            limit=limit,
+            event_type=event_type,
+        )
+        if events:
+            break
+
+    return events, next_cursor, has_more
+
+
 @router.get(
     "/{ref}/events",
     response_model=EventListResponse,
@@ -291,6 +355,17 @@ async def pull_events_endpoint(
     since: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     event_type: Optional[str] = Query(None, max_length=255),
+    wait: Optional[Literal["long"]] = Query(
+        default=None,
+        description=(
+            "Optional opt-in long-poll mode. When ``wait=long``, the "
+            "server holds the connection open for up to 30s if no "
+            "events are immediately available, polling internally "
+            "for new events. Returns as soon as an event arrives or "
+            "30s elapses (empty events list on timeout). Default is "
+            "short-poll (immediate response)."
+        ),
+    ),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -298,11 +373,34 @@ async def pull_events_endpoint(
 
     Cursor-based pagination: pass ``since=<last next_cursor>`` on the
     next call. Server-side limit cap at 1000 (FastAPI ``le=1000``
-    enforces). v0.1 ships short-poll only; long-poll mode
-    (``?wait=long`` via LISTEN/NOTIFY) reserved for follow-up
-    commit in this PR.
+    enforces).
+
+    Two modes:
+
+    * **Short-poll (default)** — immediate response. Caller polls at
+      its own cadence (typically 2s from presence-runtime v0.2's
+      ``EventConsumer``).
+    * **Long-poll** (``wait=long``) — server holds the connection
+      open up to 30s if no events are immediately available. Returns
+      as soon as the next event arrives, or 30s elapses (empty
+      events list, 200 status). Saves polling overhead at the cost
+      of an open connection.
+
+    **Implementation note**: long-poll uses a server-side internal
+    poll loop (every ~1s within the 30s window). The original PR-1b
+    design called for LISTEN/NOTIFY on a per-agent PostgreSQL channel;
+    that's a future optimization (lower CPU + DB QPS at high
+    subscriber counts) that swaps the implementation without changing
+    the wire contract. Internal polling is sufficient for the v1
+    consumer load + keeps the code simple + cleanly testable.
+
+    Closes Q1 from the PR-1b spec (CTO concur 2026-05-11; deferred
+    from PR-1b for clean-ship discipline; Backlog row
+    ``cmp0jjz7c000004kzvphxkxf4``).
     """
     agent = await get_agent_owned(db, user, ref)
+
+    # Short-poll path (default).
     events, next_cursor, has_more = await pull_events(
         db,
         recipient_agent_id=agent.id,
@@ -310,6 +408,19 @@ async def pull_events_endpoint(
         limit=limit,
         event_type=event_type,
     )
+
+    # Long-poll: if no events available + wait=long, delegate to the
+    # extracted helper. Pulled out for direct testability + coverage
+    # tracing reliability (see _run_long_poll_wait docstring).
+    if wait == "long" and not events:
+        events, next_cursor, has_more = await _run_long_poll_wait(
+            db,
+            recipient_agent_id=agent.id,
+            since=since,
+            limit=limit,
+            event_type=event_type,
+        )
+
     return EventListResponse(
         events=[_event_to_response(e) for e in events],
         next_cursor=next_cursor,

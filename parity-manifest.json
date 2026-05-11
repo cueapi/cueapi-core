@@ -121,7 +121,7 @@
       {"path": "app/routers/workers.py", "private_counterpart": "app/routers/workers.py", "last_synced": "2026-04-16"},
       {"path": "app/routers/agents.py", "private_counterpart": "app/routers/agents.py", "last_synced": "2026-05-01", "ported_in": "messaging-primitive-port"},
       {"path": "app/routers/messages.py", "private_counterpart": "app/routers/messages.py", "last_synced": "2026-05-11", "ported_in": "messaging-primitive-port + messaging-emission-port (PR-2a)", "deviation": "PR-2a addition: correlation_id passthrough to create_message service."},
-      {"path": "app/routers/events.py", "private_counterpart": "app/routers/events.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b)"}
+      {"path": "app/routers/events.py", "private_counterpart": "app/routers/events.py", "last_synced": "2026-05-11", "ported_in": "event-emit-primitive-port (PR-1b) + long-poll-port (PR-1b spec Q1)", "deviation": "Long-poll uses internal polling loop rather than PostgreSQL LISTEN/NOTIFY per impl trade-off; wire contract identical. Future LISTEN/NOTIFY swap tracked at cmp0m7n7r (private) — file OSS counterpart row when prioritized."}
     ],
     "schemas": [
       {"path": "app/schemas/__init__.py", "private_counterpart": "app/schemas/__init__.py", "last_synced": "2026-04-16"},
