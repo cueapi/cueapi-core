@@ -467,3 +467,94 @@ async def detach_subscription(
     )
     result = await db.execute(stmt)
     return (result.rowcount or 0) > 0
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Item 2(b) — cursor-advance-as-ack semantic
+# ───────────────────────────────────────────────────────────────────────
+
+
+async def advance_ack_watermark(
+    db: AsyncSession,
+    *,
+    recipient_agent_id: str,
+    new_acked_event_id: int,
+    event_type: Optional[str] = None,
+) -> int:
+    """Advance ``last_acked_event_id`` for matching pull subscriptions.
+
+    Called by ``GET /v1/agents/{ref}/events`` after returning events
+    — the cursor's progression IS the ack signal. Only updates rows
+    where the new id is strictly greater than the current watermark
+    (never moves backwards).
+
+    Scope:
+
+    * **Pull-mode only** at this entry point. Webhook subs advance
+      their ack watermark inside the dispatch loop (alongside
+      ``last_dispatched_event_id``), not via this helper.
+    * **event_type filter** if provided — caller can scope to a
+      specific event_type (matches the GET /events ``?event_type=X``
+      query param). If None, advances all matching pull subs for the
+      recipient.
+
+    Returns the number of rows updated. Pure side-effect; the caller
+    has already returned the events to the consumer at this point.
+
+    Item 2(b) (Backlog cmp1j1vlp00060). Resolves CTO concur shape:
+    consumer's natural pull cadence advances ack; explicit PATCH
+    path is the secondary surface for webhook + no-pull callers.
+    """
+    stmt = (
+        update(Subscription)
+        .where(Subscription.subscriber_agent_id == recipient_agent_id)
+        .where(Subscription.delivery_target == "pull")
+        .where(Subscription.detached_at.is_(None))
+        .where(
+            # Only advance forward. NULL watermark is "never acked";
+            # we treat any new_acked_event_id > 0 as forward of NULL.
+            (Subscription.last_acked_event_id.is_(None))
+            | (Subscription.last_acked_event_id < new_acked_event_id)
+        )
+        .values(last_acked_event_id=new_acked_event_id)
+    )
+    if event_type is not None:
+        stmt = stmt.where(Subscription.event_type == event_type)
+    result = await db.execute(stmt)
+    return result.rowcount or 0
+
+
+async def ack_subscription(
+    db: AsyncSession,
+    *,
+    subscription_id: UUID,
+    subscriber_agent_id: str,
+    acked_event_id: int,
+) -> bool:
+    """Explicit ack — PATCH /v1/agents/{ref}/subscriptions/{id}/ack.
+
+    For webhook consumers + pull consumers wanting to ack without
+    pulling new events. Updates the given subscription's
+    ``last_acked_event_id`` if (a) the row is owned by the given
+    agent and (b) the new value is strictly greater than current.
+
+    Returns ``True`` if the row was updated. ``False`` if the row
+    is owned by another agent, detached, or the new value is not
+    strictly greater (no-op idempotent).
+
+    Watermark monotonicity is enforced server-side: callers can't
+    accidentally rewind a subscription's ack to an earlier event.
+    """
+    stmt = (
+        update(Subscription)
+        .where(Subscription.id == subscription_id)
+        .where(Subscription.subscriber_agent_id == subscriber_agent_id)
+        .where(Subscription.detached_at.is_(None))
+        .where(
+            (Subscription.last_acked_event_id.is_(None))
+            | (Subscription.last_acked_event_id < acked_event_id)
+        )
+        .values(last_acked_event_id=acked_event_id)
+    )
+    result = await db.execute(stmt)
+    return (result.rowcount or 0) > 0
