@@ -54,6 +54,14 @@ class Event(Base):
         # IMMUTABLE; NOW() is STABLE). Cleanup query's range scan is
         # fast enough.
         Index("ix_events_emitted_at", "emitted_at"),
+        # Phase 4b — partial index on un-digested rows for the
+        # digest emitter's "find un-digested events for recipient X"
+        # query. Mirrors migration 060's CONCURRENTLY index.
+        Index(
+            "ix_events_undigested",
+            "recipient_agent_id",
+            postgresql_where=text("digested_at IS NULL"),
+        ),
     )
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
@@ -75,3 +83,8 @@ class Event(Base):
     # makes re-emit with the same (event_type, key) a no-op that returns
     # the existing row.
     idempotency_key = Column(Text, nullable=True)
+    # Phase 4b (migration 060) — digest batching watermark. Set when
+    # a `message.delivered` event of priority 1 or 2 is bundled into
+    # a `message.digest` event. The periodic digest emitter only
+    # acts on rows where digested_at IS NULL.
+    digested_at = Column(DateTime(timezone=True), nullable=True)
