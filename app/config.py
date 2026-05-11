@@ -27,6 +27,16 @@ class Settings(BaseSettings):
     # batch into digests in Phase 4b. Tunable; default 2s per CTO concur
     # 2026-05-11 (matches "rapid burst" debounce of Q2 design lock).
     PRIORITY_4_DEBOUNCE_SECONDS: float = 2.0
+    # Phase 4b: digest batching for p=1/p=2 subscription events.
+    # Periodic emitter bundles un-digested low-priority events into
+    # a single ``message.digest`` event per recipient per period.
+    # Default 600s (10min) per CTO concur 2026-05-11.
+    DIGEST_PERIOD_SECONDS: int = 600
+    # Smallest batch size at which a digest is emitted. Default 1 so
+    # even a single low-priority event becomes a digest (consistent
+    # shape for consumers). Operators can bump to 2+ to suppress
+    # single-message digests.
+    DIGEST_MIN_BATCH_SIZE: int = 1
     # Messaging TTL: how many days a queued message stays visible before
     # the cleanup task moves it to ``expired``. Self-hosters can tune
     # this for archival vs retention semantics — short TTL (e.g. 7d)

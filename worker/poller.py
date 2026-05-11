@@ -887,6 +887,9 @@ async def cleanup_device_codes(db_engine):
 
 
 _last_cleanup = datetime.min.replace(tzinfo=timezone.utc)
+# Phase 4b — digest emit guard. Tracks last successful emit_digests()
+# call so the periodic emitter fires every DIGEST_PERIOD_SECONDS.
+_last_digest_emit = datetime.min.replace(tzinfo=timezone.utc)
 
 _REPLICA_ID = os.getenv("RAILWAY_REPLICA_ID", "default")
 
@@ -925,7 +928,7 @@ async def write_poller_heartbeat(
 
 async def run_poller():
     """Main poller loop — runs all four polling functions + hourly cleanup."""
-    global _last_cleanup
+    global _last_cleanup, _last_digest_emit
 
     from app.utils.logging import setup_logging
     setup_logging()
@@ -1019,8 +1022,31 @@ async def run_poller():
                     "cycle_duration_ms": cycle_duration_ms,
                 })
 
-                # Hourly cleanup
                 now = datetime.now(timezone.utc)
+
+                # Phase 4b — digest emit guard. Fires every
+                # DIGEST_PERIOD_SECONDS (default 600s = 10min).
+                # Dormant until subscribers register for `message.digest`
+                # event type — emitter still runs + marks events as
+                # digested, but no downstream consumer sees the bundle
+                # without a subscription.
+                if (now - _last_digest_emit).total_seconds() > settings.DIGEST_PERIOD_SECONDS:
+                    try:
+                        from worker.digest_emitter import emit_digests
+                        digests_emitted = await emit_digests(db_engine)
+                        if digests_emitted > 0:
+                            logger.info(
+                                "digest emit cycle complete",
+                                extra={
+                                    "event_type": "digest_emit_cycle",
+                                    "digests_emitted": digests_emitted,
+                                },
+                            )
+                    except Exception:
+                        logger.exception("digest emit cycle failed")
+                    _last_digest_emit = now
+
+                # Hourly cleanup
                 if (now - _last_cleanup).total_seconds() > 3600:
                     await cleanup_outbox(db_engine)
                     await cleanup_device_codes(db_engine)
