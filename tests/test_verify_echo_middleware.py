@@ -172,20 +172,24 @@ def _from_header(agent):
 async def test_phase_1_messages_endpoint_idempotent_under_middleware(
     client, auth_headers
 ):
-    """Phase 1's send_message handler already injects echo — middleware must
-    NOT overwrite the handler-supplied ``body_received``. The handler echoes
-    the parsed Pydantic dict; middleware would echo the raw JSON. We pin the
-    handler-supplied shape (sentinel: handler's view includes ``body`` key
-    inside ``body_received``)."""
+    """Phase 1's send_message handler injects body_received as the STRING value
+    of MessageCreate.body (per design-lock hotfix). Middleware must NOT
+    overwrite the handler-supplied shape — Phase 1 STRING wins over middleware's
+    parsed-JSON-dict echo via idempotency.
+
+    Sentinel: ``body_received`` is a STRING equal to the sent body, not a dict.
+    """
+    import hashlib
     sender = await _make_agent(
         client, auth_headers, slug=f"idem-s-{uuid.uuid4().hex[:6]}"
     )
     recipient = await _make_agent(
         client, auth_headers, slug=f"idem-r-{uuid.uuid4().hex[:6]}"
     )
+    body_text = "idem test"
     r = await client.post(
         "/v1/messages",
-        json={"to": recipient["id"], "body": "idem test"},
+        json={"to": recipient["id"], "body": body_text},
         headers={
             **auth_headers,
             **_from_header(sender),
@@ -195,11 +199,15 @@ async def test_phase_1_messages_endpoint_idempotent_under_middleware(
     assert r.status_code == 201
     data = r.json()
     assert "body_received" in data
-    # Phase 1 handler dumps the Pydantic MessageCreate, so body_received is
-    # a dict with the parsed fields. Middleware-injected echo would also be
-    # a dict (parsed from raw JSON) — but we want to be sure idempotency
-    # preserved the handler's view.
-    assert data["body_received"]["body"] == "idem test"
+    assert isinstance(data["body_received"], str), (
+        f"Phase 1 idempotency violated: body_received should be STRING (handler "
+        f"shape); got {type(data['body_received']).__name__} — middleware "
+        f"overwrote handler-supplied echo."
+    )
+    assert data["body_received"] == body_text
+    assert data["body_received_sha256"] == hashlib.sha256(
+        body_text.encode("utf-8")
+    ).hexdigest()
 
 
 # ───────────────────────────────────────────────────────────────────────

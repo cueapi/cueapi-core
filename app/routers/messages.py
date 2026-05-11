@@ -108,7 +108,7 @@ async def send_message(
     # BodyVerify Layer 1: opt-in echo-back when caller sets
     # X-CueAPI-Verify-Echo: true. Helper returns {} when header absent
     # so non-opted clients see zero shape change.
-    response_content.update(apply_verify_echo(request=request, parsed_body=body))
+    response_content.update(apply_verify_echo(request=request, body_text=body.body))
     return JSONResponse(
         status_code=status_code,
         content=response_content,
