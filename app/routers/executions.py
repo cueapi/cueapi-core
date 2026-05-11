@@ -32,15 +32,58 @@ router = APIRouter(prefix="/v1/executions", tags=["executions"])
 async def list_executions(
     cue_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    status__in: Optional[str] = Query(
+        None,
+        description="Comma-separated execution statuses. Mutex with `status`.",
+    ),
+    worker_id: Optional[str] = Query(
+        None,
+        description="Filter to executions claimed by this worker (Execution.claimed_by_worker).",
+    ),
     outcome_state: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     user: AuthenticatedUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List executions with optional filters."""
+    """List executions with optional filters.
+
+    Adds `worker_id=` filter and `status__in=` comma-separated multi-status
+    filter to unblock menubar pending-exec counters that need to fetch
+    multiple statuses (e.g. `pending,delivering,retry_ready`) in one round
+    trip. Response gains `oldest_claimed_at` — the earliest `claimed_at`
+    over the filtered set (null when count=0) — so callers can render
+    "oldest pending: 5m" without a follow-up query.
+    """
     from sqlalchemy import func as sa_func
     from app.services.cue_service import _execution_to_response
+
+    if status and status__in:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "code": "conflicting_filters",
+                    "message": "Pass either `status` or `status__in`, not both.",
+                    "status": 400,
+                }
+            },
+        )
+
+    status_list: Optional[list[str]] = None
+    if status__in:
+        status_list = [s.strip() for s in status__in.split(",") if s.strip()]
+        if not status_list:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": {
+                        "code": "invalid_status_in",
+                        "message": "`status__in` must contain at least one status.",
+                        "status": 400,
+                    }
+                },
+            )
 
     base = (
         select(Execution)
@@ -52,18 +95,35 @@ async def list_executions(
         .join(Cue, Execution.cue_id == Cue.id)
         .where(Cue.user_id == user.id)
     )
+    oldest_base = (
+        select(sa_func.min(Execution.claimed_at))
+        .join(Cue, Execution.cue_id == Cue.id)
+        .where(Cue.user_id == user.id)
+    )
 
     if cue_id:
         base = base.where(Execution.cue_id == cue_id)
         count_base = count_base.where(Execution.cue_id == cue_id)
+        oldest_base = oldest_base.where(Execution.cue_id == cue_id)
     if status:
         base = base.where(Execution.status == status)
         count_base = count_base.where(Execution.status == status)
+        oldest_base = oldest_base.where(Execution.status == status)
+    if status_list:
+        base = base.where(Execution.status.in_(status_list))
+        count_base = count_base.where(Execution.status.in_(status_list))
+        oldest_base = oldest_base.where(Execution.status.in_(status_list))
+    if worker_id:
+        base = base.where(Execution.claimed_by_worker == worker_id)
+        count_base = count_base.where(Execution.claimed_by_worker == worker_id)
+        oldest_base = oldest_base.where(Execution.claimed_by_worker == worker_id)
     if outcome_state:
         base = base.where(Execution.outcome_state == outcome_state)
         count_base = count_base.where(Execution.outcome_state == outcome_state)
+        oldest_base = oldest_base.where(Execution.outcome_state == outcome_state)
 
     total = await db.scalar(count_base) or 0
+    oldest_claimed_at = await db.scalar(oldest_base) if total else None
     result = await db.execute(
         base.order_by(Execution.created_at.desc()).limit(limit).offset(offset)
     )
@@ -75,6 +135,7 @@ async def list_executions(
         "limit": limit,
         "offset": offset,
         "has_more": (offset + limit) < total,
+        "oldest_claimed_at": oldest_claimed_at.isoformat() if oldest_claimed_at else None,
     }
 
 
