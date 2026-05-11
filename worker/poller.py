@@ -988,7 +988,12 @@ async def run_poller():
                 # wires `emit_event`, the events table stays empty and
                 # this call returns 0.
                 from worker.subscription_dispatcher import dispatch_subscription_events
-                subscription_dispatch_count = await dispatch_subscription_events(db_engine)
+                # Phase 4a — pass Redis client so per-tier policy
+                # (p=4 debounce) can consult + stamp markers. Falls
+                # through to fire-everything when redis=None.
+                subscription_dispatch_count = await dispatch_subscription_events(
+                    db_engine, redis=heartbeat_redis,
+                )
                 worker_alerts = await check_worker_health(db_engine, heartbeat_redis)
 
                 cycle_duration_ms = int((time.monotonic() - cycle_start) * 1000)
