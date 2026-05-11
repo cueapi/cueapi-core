@@ -76,6 +76,17 @@ class SubscriptionCreate(BaseModel):
     event_type: str = Field(..., min_length=1, max_length=255)
     delivery_target: Literal["pull", "webhook"]
     webhook_url: Optional[str] = Field(default=None, max_length=2048)
+    inline_body: bool = Field(
+        default=False,
+        description=(
+            "Item 1 Option 1 (CTO concur 2026-05-11): opt into body "
+            "embedding. When True, emit_event includes the source "
+            "message body in payload.body (≤32KB) or sets a body_omitted "
+            "flag (>32KB). Default False preserves META-only v1 behavior. "
+            "Coexists architecturally with consumer-side body-detect-and-"
+            "skip-fetch — both paths are additive."
+        ),
+    )
 
 
 class SubscriptionResponse(BaseModel):
@@ -93,6 +104,7 @@ class SubscriptionResponse(BaseModel):
     delivery_target: str
     webhook_url: Optional[str] = None
     webhook_secret: Optional[str] = None
+    inline_body: bool = False
     last_dispatched_event_id: Optional[int] = None
     last_dispatched_at: Optional[str] = None
     consecutive_failures: int = 0
@@ -161,6 +173,7 @@ def _subscription_to_response(
         delivery_target=sub.delivery_target,
         webhook_url=_redact_webhook_url(sub.webhook_url),
         webhook_secret=sub.webhook_secret if include_secret else None,
+        inline_body=bool(sub.inline_body),
         last_dispatched_event_id=sub.last_dispatched_event_id,
         last_dispatched_at=(
             sub.last_dispatched_at.isoformat() if sub.last_dispatched_at else None
@@ -227,6 +240,7 @@ async def create_subscription_endpoint(
             event_type=body.event_type,
             delivery_target=body.delivery_target,
             webhook_url=body.webhook_url,
+            inline_body=body.inline_body,
         )
     except EventsServiceError as exc:
         raise _service_error_to_http(exc) from exc

@@ -71,6 +71,15 @@ caller from pulling the entire events table in one request. Cursor
 pagination via ``next_cursor`` is the supported way to walk many
 events."""
 
+INLINE_BODY_MAX_BYTES = 32 * 1024
+"""32KB cap for inline body embedding (Item 1 Option 1, CTO concur
+2026-05-11). Bodies ≤ cap → embedded as ``payload.body``. Bodies
+> cap → omitted; ``payload.body_omitted = "size_too_large"`` +
+``payload.body_size_bytes = <N>`` signal the consumer to fetch the
+full body via GET /v1/messages/{id}. Empirical justification:
+99.94% of cue payloads on staging ≤ 65 bytes; Slack-style P99
+≈ 10KB — 32KB has comfortable margin."""
+
 WEBHOOK_CIRCUIT_BREAKER_THRESHOLD = 10
 """``consecutive_failures`` ceiling — the webhook dispatch loop sets
 ``paused_until = NOW() + 1h`` once a sub crosses this. Pull surface
@@ -126,6 +135,58 @@ class SubscriptionNotFoundError(EventsServiceError):
 # Emit — append-only with idempotency.
 # ───────────────────────────────────────────────────────────────────────
 
+async def _maybe_embed_body(
+    db: AsyncSession,
+    *,
+    recipient_agent_id: str,
+    event_type: str,
+    body_text: str,
+    payload: dict,
+) -> dict:
+    """Helper: decide whether to embed body_text into payload.
+
+    Pure-helper-friendly: checks if ANY active subscription for
+    (recipient, event_type) has inline_body=True. If yes:
+
+    - Body ≤ INLINE_BODY_MAX_BYTES → embed as ``payload['body']``
+    - Body > INLINE_BODY_MAX_BYTES → set ``payload['body_omitted']
+      = 'size_too_large'`` + ``payload['body_size_bytes'] = N``
+
+    If no active inline_body subscription exists, returns payload
+    unchanged (META-only emit, the existing behavior).
+
+    Item 1 Option 1 (Backlog cmp1j1rzs00020) — coexists architecturally
+    with CMA's Option 2 (runtime-side body-detect + skip-fetch).
+    Both ship per CTO direction 2026-05-11.
+    """
+    # Cheap pre-check: is there at least one active inline_body
+    # subscription for this recipient + event_type? Single SELECT;
+    # uses ``ux_subscriptions_active_unique`` partial index.
+    from app.models.subscription import Subscription
+
+    stmt = (
+        select(Subscription.id)
+        .where(Subscription.subscriber_agent_id == recipient_agent_id)
+        .where(Subscription.event_type == event_type)
+        .where(Subscription.detached_at.is_(None))
+        .where(Subscription.inline_body.is_(True))
+        .limit(1)
+    )
+    has_inline_sub = (await db.execute(stmt)).scalar_one_or_none() is not None
+
+    if not has_inline_sub:
+        return payload
+
+    body_bytes = len(body_text.encode("utf-8"))
+    enriched = dict(payload)  # don't mutate caller's dict
+    if body_bytes <= INLINE_BODY_MAX_BYTES:
+        enriched["body"] = body_text
+    else:
+        enriched["body_omitted"] = "size_too_large"
+        enriched["body_size_bytes"] = body_bytes
+    return enriched
+
+
 async def emit_event(
     db: AsyncSession,
     *,
@@ -133,6 +194,7 @@ async def emit_event(
     recipient_agent_id: str,
     payload: dict,
     idempotency_key: Optional[str] = None,
+    body_text: Optional[str] = None,
 ) -> Event:
     """Append a new event row for a recipient.
 
@@ -149,10 +211,26 @@ async def emit_event(
     on the hot path; the messaging service emits trusted types only.
     Validating here would gate every fire on a registry check.
 
-    **Dormant in PR-1b**: no caller wires this yet. PR-2a's messaging
-    service is the first caller; until then, the function exists for
-    schema / contract validation in tests only.
+    **Item 1 inline_body** (CTO concur 2026-05-11): if ``body_text``
+    is provided AND the recipient has an active subscription with
+    ``inline_body=True`` for this ``event_type``, the body is
+    embedded in ``payload.body`` (≤32KB) or omit-flagged (>32KB).
+    Callers that don't have a body to embed pass ``body_text=None``
+    (the default) and the function skips the subscription lookup —
+    zero perf cost for non-body emit paths.
     """
+    # Item 1 — body embedding decision. Pure-helper-friendly via
+    # ``_maybe_embed_body``; called only when ``body_text`` is
+    # provided so non-body emit paths skip the SQL.
+    if body_text is not None:
+        payload = await _maybe_embed_body(
+            db,
+            recipient_agent_id=recipient_agent_id,
+            event_type=event_type,
+            body_text=body_text,
+            payload=payload,
+        )
+
     if idempotency_key is None:
         # Plain INSERT — no dedup needed.
         event = Event(
@@ -285,6 +363,7 @@ async def create_subscription(
     event_type: str,
     delivery_target: Literal["pull", "webhook"],
     webhook_url: Optional[str] = None,
+    inline_body: bool = False,
 ) -> Subscription:
     """Create a subscription row for an agent.
 
@@ -328,6 +407,7 @@ async def create_subscription(
         delivery_target=delivery_target,
         webhook_url=webhook_url,
         webhook_secret=webhook_secret,
+        inline_body=inline_body,
     )
     db.add(sub)
     await db.flush()
