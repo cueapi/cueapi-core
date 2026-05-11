@@ -122,6 +122,18 @@ def test_known_event_types_contains_message_delivered():
     assert "message.delivered" in KNOWN_EVENT_TYPES
 
 
+def test_known_event_types_contains_message_digest():
+    """Phase 4b — message.digest must be in the registry so subscribers
+    can subscribe to bundled summaries."""
+    assert "message.digest" in KNOWN_EVENT_TYPES
+
+
+def test_known_event_types_contains_turn_pass():
+    """Item 2(a) (Backlog cmp1j1tt600040) — turn.pass must be in the
+    registry for inbox-watcher recipes to subscribe + filter on it."""
+    assert "turn.pass" in KNOWN_EVENT_TYPES
+
+
 # ───────────────────────────────────────────────────────────────────────
 # emit_event — happy + idempotency paths
 # ───────────────────────────────────────────────────────────────────────
@@ -388,6 +400,42 @@ async def test_create_subscription_webhook_happy_path(
     assert sub.webhook_url == "https://example.com/hook"
     assert sub.webhook_secret is not None
     assert sub.webhook_secret.startswith("whsec_")
+
+
+async def test_subscribe_emit_pull_turn_pass_end_to_end(
+    db_session: AsyncSession, stub_agent: Agent
+):
+    """Item 2(a) — turn.pass round-trips through subscribe → emit →
+    pull. Validates that the new event type works as a META-only
+    envelope (no body field; small payload)."""
+    sub = await create_subscription(
+        db_session,
+        subscriber_agent_id=stub_agent.id,
+        event_type="turn.pass",
+        delivery_target="pull",
+    )
+    await db_session.commit()
+    assert sub.event_type == "turn.pass"
+
+    # Emit a META-only turn.pass event (no body coupling — matches
+    # the design intent of inbox-watcher recipes).
+    await emit_event(
+        db_session,
+        event_type="turn.pass",
+        recipient_agent_id=stub_agent.id,
+        payload={"agent_ref": stub_agent.id, "turn_index": 7},
+    )
+    await db_session.commit()
+
+    events, cursor, has_more = await pull_events(
+        db_session,
+        recipient_agent_id=stub_agent.id,
+        event_type="turn.pass",
+    )
+    assert len(events) == 1
+    assert events[0].event_type == "turn.pass"
+    assert events[0].payload == {"agent_ref": stub_agent.id, "turn_index": 7}
+    assert has_more is False
 
 
 async def test_create_subscription_rejects_unknown_event_type(

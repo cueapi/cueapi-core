@@ -48,14 +48,18 @@ from app.utils.url_validation import validate_callback_url
 KNOWN_EVENT_TYPES = frozenset({
     "message.delivered",
     "message.digest",
+    "turn.pass",
 })
 """Allow-list of event types subscribable at v0.1. PR-2a wires
 ``message.delivered`` emission from the messaging service. Phase 4b
 adds ``message.digest`` — bundled summary of N low-priority (p=1/p=2)
-events emitted periodically by the digest emitter. Future types
-(``message.read``, ``message.ack``, ``cue.execution.outcome``,
-``agent.live_session.detached``) are out of scope; adding them later
-is purely additive (new entries here)."""
+events emitted periodically by the digest emitter. Item 2(a) (Backlog
+``cmp1j1tt600040``, CTO ask 2026-05-11) adds ``turn.pass`` — zero-body
+META envelope for inbox-watcher recipes to filter on by default
+(consumer-side bundled in AttachSnippetGenerator v2.3, CMA's lane).
+Future types (``message.read``, ``message.ack``,
+``cue.execution.outcome``, ``agent.live_session.detached``) are out
+of scope; adding them later is purely additive (new entries here)."""
 
 
 # Server-side limits / defaults.
