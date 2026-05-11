@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.database import Base
@@ -13,8 +13,21 @@ class DispatchOutbox(Base):
     # Nullable since migration 021: cue-task rows still set execution_id +
     # cue_id; message-task rows (deliver_message / retry_message) leave
     # them NULL and reference message_id in the payload instead.
-    execution_id = Column(UUID(as_uuid=True), nullable=True)
-    cue_id = Column(String(20), nullable=True)
+    # FK declarations match private cueapi: migration 002 declared the
+    # DB-level FKs to executions.id and cues.id with ondelete=CASCADE; the
+    # model previously omitted the FK declaration which was benign drift
+    # (DB constraint still enforced) but broke any future SQLAlchemy ORM
+    # relationship() traversal. Parity port of cueapi/cueapi#594.
+    execution_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("executions.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    cue_id = Column(
+        String(20),
+        ForeignKey("cues.id", ondelete="CASCADE"),
+        nullable=True,
+    )
     task_type = Column(String(20), nullable=False, default="deliver")
     payload = Column(JSONB, nullable=False, default={})
     dispatched = Column(Boolean, nullable=False, default=False)
