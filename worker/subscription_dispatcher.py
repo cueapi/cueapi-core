@@ -36,6 +36,7 @@ from app.models.event import Event
 from app.models.subscription import Subscription
 from app.utils.signing import sign_payload
 from worker.subscription_dispatcher_policy import (
+    _event_priority,
     apply_tier_policy,
     stamp_dispatch_markers,
 )
@@ -248,6 +249,12 @@ async def dispatch_subscription_events(
     attributes instead of raw Row tuples.
     """
     attempts = 0
+    # Phase 4c — per-tier dispatch counters for observability. Updated
+    # after each successful webhook fire so the poller can log a
+    # tier breakdown per cycle. Keys are stringified priority ints
+    # ('1' through '5') for JSON-safe structured logging.
+    tier_fired_counts = {str(p): 0 for p in range(1, 6)}
+    tier_deferred_counts = {str(p): 0 for p in range(1, 6)}
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
 
     async with session_factory() as session:
@@ -273,6 +280,13 @@ async def dispatch_subscription_events(
                     )
                 else:
                     events_to_fire, events_deferred = list(events), []
+
+                # Phase 4c — track deferred events by tier for the
+                # cycle's structured log line. Updated regardless of
+                # whether we proceed to fire (deferred = held back this
+                # cycle, will re-evaluate next time).
+                for ev in events_deferred:
+                    tier_deferred_counts[str(_event_priority(ev))] += 1
 
                 if not events_to_fire:
                     # All events deferred (only p=4 in the batch +
@@ -329,6 +343,11 @@ async def dispatch_subscription_events(
                             subscriber_agent_id=sub.subscriber_agent_id,
                             events=events_to_fire,
                         )
+
+                    # Phase 4c — track fired events by tier for the
+                    # cycle log line. Only counted on success outcome.
+                    for ev in events_to_fire:
+                        tier_fired_counts[str(_event_priority(ev))] += 1
                 else:
                     # retry + skip both bump the failure counter without
                     # advancing the watermark. Distinction matters for
@@ -358,6 +377,24 @@ async def dispatch_subscription_events(
                         )
                     )
                 attempts += 1
+
+    # Phase 4c — emit one structured log line per cycle with the
+    # tier breakdown. Only logs when there's actual activity so the
+    # signal-to-noise ratio stays high in production.
+    total_fired = sum(tier_fired_counts.values())
+    total_deferred = sum(tier_deferred_counts.values())
+    if total_fired > 0 or total_deferred > 0:
+        logger.info(
+            "subscription dispatch cycle summary",
+            extra={
+                "event_type": "subscription_dispatch_cycle",
+                "attempts": attempts,
+                "tier_fired": tier_fired_counts,
+                "tier_deferred": tier_deferred_counts,
+                "total_fired": total_fired,
+                "total_deferred": total_deferred,
+            },
+        )
 
     return attempts
 
