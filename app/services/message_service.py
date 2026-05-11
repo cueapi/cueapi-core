@@ -406,6 +406,12 @@ async def create_message(
             )
         )
 
+    # Agent Directory Phase A (PR #630): touch sender's last_seen_at
+    # within the same transaction as the message insert. Best-effort
+    # update — if it fails, the message still commits.
+    from app.services.agent_service import touch_last_seen
+    await touch_last_seen(db, from_agent.id)
+
     await db.commit()
     await db.refresh(msg)
 

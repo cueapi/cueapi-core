@@ -54,6 +54,21 @@ def _http_error(status: int, code: str, message: str) -> HTTPException:
     )
 
 
+def _bump_last_seen_stmt(agent_id, now):
+    """Pure helper: build the SQL UPDATE statement that bumps an agent's
+    ``last_seen_at`` to ``now``.
+
+    Refactored out of ``list_inbox`` so the §Surface-5 hot-path hook is
+    unit-testable without going through DB + ASGI. Returns the SQLAlchemy
+    statement; caller does ``await db.execute(stmt)``. Same pattern works
+    for both the queued→delivered transition path and the no-transition
+    path inside ``list_inbox``.
+
+    Agent Directory Phase A (PR #630).
+    """
+    return update(Agent).where(Agent.id == agent_id).values(last_seen_at=now)
+
+
 def _parse_state_filter(
     states: Optional[str], *, default: Tuple[str, ...] = DEFAULT_STATES
 ) -> Tuple[str, ...]:
@@ -216,6 +231,17 @@ async def list_inbox(
             .returning(Message.id)
         )
         await db.execute(upd_q)
+        # Agent Directory Phase A (PR #630): touch recipient's
+        # last_seen_at in the same transaction as the queued→delivered
+        # flip. Even when no queued messages exist, the poll proves
+        # activity — see the else branch below.
+        await db.execute(_bump_last_seen_stmt(agent.id, upd_now))
+        await db.commit()
+    else:
+        # No queued→delivered transition this call (filter excluded
+        # ``queued``), but we still observed activity from the recipient
+        # — bump their last_seen_at in its own transaction.
+        await db.execute(_bump_last_seen_stmt(agent.id, now_gate))
         await db.commit()
 
     # Total (after the transition).
