@@ -10,6 +10,7 @@ from app.config import settings
 from app.middleware.body_limit import BodySizeLimitMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.request_id import RequestIdMiddleware
+from app.middleware.verify_echo import VerifyEchoMiddleware
 from app.redis import close_redis
 from app.routers import agent_live_sessions, agents, alerts, auth_routes, cues, device_code, echo, events, executions, health, info, internal_users, messages, usage, webhook_secret, workers
 from app.utils.logging import setup_logging
@@ -70,6 +71,10 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Request-Id", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After", "X-CueAPI-Usage-Warning"],
 )
+# VerifyEcho sits inside rate-limit + body-limit so we don't process
+# oversized/throttled requests; outside SecurityHeaders (when added) so the
+# security-header sweep applies to the possibly-mutated response.
+app.add_middleware(VerifyEchoMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(RequestIdMiddleware)
