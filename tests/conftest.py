@@ -24,6 +24,8 @@ from app.main import app
 from app.models import Alert, Cue, DispatchOutbox, Execution, UsageMonthly, User, Worker, DeviceCode  # noqa: F401
 # Messaging primitive models — must import so Base.metadata picks them up.
 from app.models import Agent, Message, UsageMessagesMonthly  # noqa: F401
+# Event-emit primitive models (PR-1b) — must import so Base.metadata picks them up.
+from app.models import Event, Subscription  # noqa: F401
 
 # Use the same database but create/drop tables for isolation
 TEST_DATABASE_URL = settings.DATABASE_URL

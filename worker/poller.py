@@ -983,6 +983,12 @@ async def run_poller():
                     unclaimed_timeout=settings.WORKER_UNCLAIMED_TIMEOUT_SECONDS,
                 )
                 dispatch_count = await dispatch_outbox(db_engine, arq_redis, settings.POLLER_BATCH_SIZE)
+                # PR-1b event-emit primitive: dispatch webhook subscriptions.
+                # Ships DORMANT — until the messaging-emission counterpart
+                # wires `emit_event`, the events table stays empty and
+                # this call returns 0.
+                from worker.subscription_dispatcher import dispatch_subscription_events
+                subscription_dispatch_count = await dispatch_subscription_events(db_engine)
                 worker_alerts = await check_worker_health(db_engine, heartbeat_redis)
 
                 cycle_duration_ms = int((time.monotonic() - cycle_start) * 1000)
@@ -1003,6 +1009,7 @@ async def run_poller():
                     "worker_stale_recovered": worker_stale_count,
                     "worker_unclaimed_failed": worker_unclaimed_count,
                     "dispatched": dispatch_count,
+                    "subscription_dispatched": subscription_dispatch_count,
                     "worker_alerts": worker_alerts,
                     "cycle_duration_ms": cycle_duration_ms,
                 })
@@ -1012,6 +1019,12 @@ async def run_poller():
                 if (now - _last_cleanup).total_seconds() > 3600:
                     await cleanup_outbox(db_engine)
                     await cleanup_device_codes(db_engine)
+                    # PR-1b event-emit primitive cleanup. 7-day TTL.
+                    # Dormant until the messaging-emission counterpart
+                    # wires `emit_event`; until then the events table
+                    # stays empty and this call is a no-op.
+                    from worker.subscription_dispatcher import cleanup_old_events
+                    await cleanup_old_events(db_engine)
                     _last_cleanup = now
 
             except Exception:

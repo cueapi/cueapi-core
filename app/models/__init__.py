@@ -10,8 +10,11 @@ from app.models.agent import Agent
 from app.models.agent_live_session import AgentLiveSession
 from app.models.message import Message
 from app.models.usage_messages_monthly import UsageMessagesMonthly
+from app.models.event import Event
+from app.models.subscription import Subscription
 
 __all__ = [
     "User", "Cue", "Execution", "DispatchOutbox", "UsageMonthly", "DeviceCode",
     "Worker", "Alert", "Agent", "AgentLiveSession", "Message", "UsageMessagesMonthly",
+    "Event", "Subscription",
 ]
