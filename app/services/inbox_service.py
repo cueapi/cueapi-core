@@ -158,9 +158,18 @@ async def list_inbox(
     # for push-delivery context (not an auth predicate; correct).
     # No webhook delivery callback, cue-bus side effect, or audit
     # log scan uses ``Message.user_id`` as an auth boundary.
+    # §13 / Phase 12.1.7: gate scheduled-send messages out of the
+    # recipient's inbox until their time. NULL send_at means "send
+    # now" (existing behavior — covered by IS NULL); future timestamps
+    # become visible the first time the recipient polls after the
+    # send_at moment.
+    now_gate = datetime.now(timezone.utc)
+    send_at_gate = or_(Message.send_at.is_(None), Message.send_at <= now_gate)
+
     base_filters = [
         Message.to_agent_id == agent.id,
         Message.delivery_state.in_(state_tuple),
+        send_at_gate,
     ]
     if since is not None:
         base_filters.append(Message.created_at > since)
@@ -189,17 +198,21 @@ async def list_inbox(
     # threads. (Pre-v1.1.1 the inbox poll was always full-inbox so
     # this distinction didn't exist.)
     if "queued" in state_tuple:
-        now = datetime.now(timezone.utc)
+        upd_now = datetime.now(timezone.utc)
         upd_predicates = [
             Message.to_agent_id == agent.id,
             Message.delivery_state == "queued",
+            # §13: don't transition scheduled-but-not-yet-due messages.
+            # Their queued→delivered flip waits until send_at <= now()
+            # (whichever poll comes after the scheduled time).
+            or_(Message.send_at.is_(None), Message.send_at <= upd_now),
         ]
         if counterpart_agent is not None:
             upd_predicates.append(Message.from_agent_id == counterpart_agent.id)
         upd_q = (
             update(Message)
             .where(*upd_predicates)
-            .values(delivery_state="delivered", delivered_at=now)
+            .values(delivery_state="delivered", delivered_at=upd_now)
             .returning(Message.id)
         )
         await db.execute(upd_q)

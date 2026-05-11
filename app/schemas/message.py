@@ -52,6 +52,19 @@ class MessageCreate(BaseModel):
             "lookup. Null by default."
         ),
     )
+    send_at: Optional[datetime] = Field(
+        default=None,
+        description=(
+            "§13 / Phase 12.1.7: optional UTC timestamp to schedule this "
+            "message for future delivery. NULL = send now (default). "
+            "When set in the future, the message sits in the recipient's "
+            "inbox-query gate until `send_at <= now()`, then becomes "
+            "fetchable. Push-delivery dispatch is also gated via "
+            "DispatchOutbox.scheduled_at. Past timestamps are forgiving "
+            "fallback (treated as send-now). Same semantics as cue-fire "
+            "`send_at` (PR #618)."
+        ),
+    )
 
 
 class FromAgentRef(BaseModel):
@@ -92,6 +105,7 @@ class MessageResponse(BaseModel):
     read_at: Optional[datetime]
     acked_at: Optional[datetime]
     failed_at: Optional[datetime]
+    send_at: Optional[datetime] = None
     expires_at: datetime
     # PR-2a-OSS additions — D3 RPC framing + dispatcher state surface.
     correlation_id: Optional[str] = None
