@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Tuple
 
@@ -56,6 +57,9 @@ from app.models import Agent, DispatchOutbox, Message
 from app.redis import get_redis
 from app.services.agent_service import resolve_address
 from app.services.authorization_backend import get_authorization_backend
+from app.services.events_service import emit_event
+
+logger = logging.getLogger(__name__)
 from app.services.message_usage_service import (
     check_message_quota,
     check_per_minute_rate_limit,
@@ -137,6 +141,7 @@ async def create_message(
     metadata: Dict,
     idempotency_key: Optional[str],
     from_agent: Agent,
+    correlation_id: Optional[str] = None,
 ) -> Tuple[Message, bool, bool]:
     """Send a message. Returns (message, was_dedup_hit, priority_downgraded).
 
@@ -310,8 +315,49 @@ async def create_message(
         idempotency_key=idempotency_key,
         idempotency_fingerprint=fingerprint if idempotency_key else None,
         expires_at=expires_at,
+        # PR-2a-OSS port — D2 (priority two-axis) + D3 (RPC framing).
+        # Bucket = priority verbatim at v1; future tier policy reads
+        # this column so it can diverge.
+        dispatch_priority_bucket=priority,
+        correlation_id=correlation_id,
     )
     db.add(msg)
+
+    # PR-2a-OSS port — emit ``message.delivered`` event on the
+    # event-emit primitive substrate (cueapi-core#71). Subscribers
+    # (presence-runtime v0.2 consumers, future webhook subscriptions)
+    # pick this up out-of-band. Idempotent on (event_type, message_id)
+    # so retries after transient failure don't double-emit.
+    #
+    # Best-effort: events_service failures are logged but don't
+    # block the message-create flow. Messaging is the canonical
+    # surface; events are downstream telemetry.
+    try:
+        await emit_event(
+            db,
+            event_type="message.delivered",
+            recipient_agent_id=to_agent.id,
+            payload={
+                "message_id": msg_id,
+                "sender_agent_id": from_agent.id,
+                "recipient_agent_id": to_agent.id,
+                "thread_id": thread_id,
+                "reply_to": parent_msg_id,
+                "priority": priority,
+                "correlation_id": correlation_id,
+                "subject": subject,
+            },
+            idempotency_key=f"message.delivered:{msg_id}",
+        )
+    except Exception as exc:  # noqa: BLE001 — best-effort, don't block create
+        logger.warning(
+            "events_service.emit_event failed during create_message; continuing",
+            extra={
+                "event_type": "message_emit_failed",
+                "message_id": msg_id,
+                "error": str(exc)[:200],
+            },
+        )
 
     # 7.5. Push-delivery enqueue (§5.1). When the recipient has a
     # ``webhook_url`` configured, insert a ``deliver_message`` outbox
@@ -509,4 +555,7 @@ def to_response_dict(msg: Message) -> Dict:
         "acked_at": msg.acked_at,
         "failed_at": msg.failed_at,
         "expires_at": msg.expires_at,
+        "correlation_id": msg.correlation_id,
+        "dispatch_priority_bucket": msg.dispatch_priority_bucket,
+        "message_dispatch_error": msg.message_dispatch_error,
     }

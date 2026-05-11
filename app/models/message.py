@@ -44,6 +44,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
@@ -121,6 +122,22 @@ class Message(Base):
         server_default=func.now(),  # default-to-creation; service-layer adds 30d at create time
     )
 
+    # PR-2a-OSS port (migration 029) — event-emit primitive wiring columns.
+    # Verbatim port of private cueapi's columns from migration 059. Same
+    # semantics: bucket computed at create from priority (lets server-side
+    # dispatcher batch by tier without re-querying); message_dispatch_error
+    # captures handler-error context (EC1: outcome.error → message audit
+    # trail); correlation_id is RPC framing (D3) for programmatic
+    # request/response matching independent of reply_to chains.
+    dispatch_priority_bucket = Column(
+        SmallInteger,
+        nullable=False,
+        default=3,
+        server_default="3",
+    )
+    message_dispatch_error = Column(Text, nullable=True)
+    correlation_id = Column(String(255), nullable=True)
+
     __table_args__ = (
         CheckConstraint("priority BETWEEN 1 AND 5", name="valid_priority"),
         CheckConstraint(
@@ -141,4 +158,12 @@ class Message(Base):
         ),
         Index("ix_messages_sent", "from_agent_id", "created_at"),
         Index("ix_messages_thread", "thread_id", "created_at"),
+        # PR-2a-OSS port — partial index for RPC correlation lookup.
+        # Mirrors migration 029's CONCURRENTLY index so
+        # Base.metadata.create_all builds it in tests.
+        Index(
+            "ix_messages_correlation_id",
+            "correlation_id",
+            postgresql_where=text("correlation_id IS NOT NULL"),
+        ),
     )
