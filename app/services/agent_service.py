@@ -392,3 +392,161 @@ def to_response_dict(agent: Agent, *, include_secret: bool = False) -> Dict:
         "created_at": agent.created_at,
         "updated_at": agent.updated_at,
     }
+
+
+# ───────────────────────────────────────────────────────────────────
+# Agent Directory Phase A (PR #630) — roster + online derivation
+# ───────────────────────────────────────────────────────────────────
+
+_ONLINE_THRESHOLD_SECONDS = 300       # 5 min  → online
+_AWAY_THRESHOLD_SECONDS = 1800        # 30 min → away (else offline)
+_ETAG_BUCKET_SECONDS = 300            # Align ETag freshness to derivation thresholds.
+
+
+def _format_relative(now, last_seen_at) -> str:
+    if last_seen_at is None:
+        return "never"
+    delta = (now - last_seen_at).total_seconds()
+    if delta < 60:
+        return "active now"
+    if delta < 3600:
+        return f"{int(delta / 60)}m ago"
+    if delta < 86400:
+        return f"{int(delta / 3600)}h ago"
+    return f"{int(delta / 86400)}d ago"
+
+
+def _derive_online_state(now, last_seen_at, asserted_status: str):
+    """Returns (online_bool, derived_status).
+
+    Caller-asserted ``status`` (PATCH /v1/agents/{ref}) overrides the
+    derivation when explicitly set to 'away' or 'offline' — lets agents
+    voluntarily mark themselves unavailable during long-running tasks.
+    """
+    if asserted_status in ("away", "offline"):
+        return (False, asserted_status)
+    if last_seen_at is None:
+        return (False, "offline")
+    delta = (now - last_seen_at).total_seconds()
+    if delta <= _ONLINE_THRESHOLD_SECONDS:
+        return (True, "online")
+    if delta <= _AWAY_THRESHOLD_SECONDS:
+        return (False, "away")
+    return (False, "offline")
+
+
+def _bucketed_seen(last_seen_at):
+    """Floor last_seen_at to a 5-min bucket for ETag stability.
+
+    The roster's derivation crosses category boundaries at 5 / 30 min,
+    so an ETag that flips on every-second timestamp drift would defeat
+    its own purpose. Bucketing means a quiet 5-minute window produces a
+    stable ETag — clients polling at the suggested cadence will get 304.
+    """
+    if last_seen_at is None:
+        return ""
+    epoch = int(last_seen_at.timestamp())
+    return str(epoch - (epoch % _ETAG_BUCKET_SECONDS))
+
+
+def _build_roster_entry(agent, now):
+    """Pure helper: ORM Agent row → (entry_dict, etag_part_string).
+
+    Refactored out of ``list_roster`` so the per-agent shaping (online
+    derivation, description extraction, preferred-contact derivation,
+    ETag-part construction) is unit-testable without going through the
+    DB + ASGI stack.
+
+    Takes any object with ``.slug``, ``.display_name``, ``.last_seen_at``,
+    ``.status``, ``.webhook_url``, and ``.metadata_`` — duck-typed so the
+    test can pass a SimpleNamespace.
+    """
+    online, derived_status = _derive_online_state(
+        now, agent.last_seen_at, agent.status
+    )
+    description = None
+    meta = agent.metadata_ or {}
+    if isinstance(meta, dict) and isinstance(meta.get("description"), str):
+        description = meta["description"]
+
+    preferred_contact = "sync" if agent.webhook_url else "async"
+    entry = {
+        "name": agent.slug,
+        "display_name": agent.display_name,
+        "description": description,
+        "online": online,
+        "last_seen_relative": _format_relative(now, agent.last_seen_at),
+        "preferred_contact": preferred_contact,
+        "status": derived_status,
+    }
+    etag_part = "|".join([
+        agent.slug,
+        agent.display_name,
+        description or "",
+        "1" if online else "0",
+        preferred_contact,
+        derived_status,
+        _bucketed_seen(agent.last_seen_at),
+    ])
+    return entry, etag_part
+
+
+def _compute_roster_etag(etag_parts):
+    """Pure helper: list of per-agent etag-part strings → weak ETag."""
+    import hashlib
+    digest = hashlib.sha256("\n".join(etag_parts).encode("utf-8")).hexdigest()
+    return f'W/"{digest[:16]}"'
+
+
+async def list_roster(db: AsyncSession, user: AuthenticatedUser) -> Dict:
+    """Build the roster snapshot for GET /v1/agents/roster.
+
+    Returns ``{"generated_at": now, "agents": [...], "etag": "..."}``.
+    Always-full list (no pagination), always excludes soft-deleted.
+    Display-optimized for prompt injection — see PRD §Surface 5.
+
+    The returned ETag is a content hash over the *material* fields
+    (excludes ``generated_at`` and the relative-time string, both of
+    which drift every second). Roster-router serves 304 when the
+    client's ``If-None-Match`` matches.
+    """
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+
+    rows_q = (
+        select(Agent)
+        .where(Agent.user_id == user.id, Agent.deleted_at.is_(None))
+        .order_by(Agent.slug)
+    )
+    rows = (await db.execute(rows_q)).scalars().all()
+
+    entries = []
+    etag_parts = []
+    for agent in rows:
+        entry, etag_part = _build_roster_entry(agent, now)
+        entries.append(entry)
+        etag_parts.append(etag_part)
+
+    return {
+        "generated_at": now,
+        "agents": entries,
+        "etag": _compute_roster_etag(etag_parts),
+    }
+
+
+async def touch_last_seen(db: AsyncSession, agent_id: str) -> None:
+    """Update agent.last_seen_at = now() for hot-path activity.
+
+    Called from create_message (sender side) + list_inbox (recipient
+    side). Best-effort; failure logged but doesn't block the main flow.
+    """
+    from datetime import datetime, timezone
+    from sqlalchemy import update
+    now = datetime.now(timezone.utc)
+    try:
+        await db.execute(
+            update(Agent).where(Agent.id == agent_id).values(last_seen_at=now)
+        )
+    except Exception:
+        pass  # Best-effort — don't break the hot path.

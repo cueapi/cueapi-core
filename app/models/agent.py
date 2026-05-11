@@ -75,6 +75,12 @@ class Agent(Base):
         server_default="{}",
     )
     status = Column(String(16), nullable=False, default="online", server_default="online")
+    # Agent Directory Phase A (PR #630): timestamp of last observed activity.
+    # Written by hot paths (create_message sender, list_inbox recipient).
+    # NULL = no activity observed; derivation maps to "offline".
+    # 5min → online, 30min → away, older/NULL → offline.
+    # Caller-asserted ``status`` overrides the derivation.
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
