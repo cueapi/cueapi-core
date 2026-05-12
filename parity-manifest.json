@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "description": "Files in cueapi-core that have a same-path counterpart in the private cueapi monorepo. Changes to the private counterpart should be considered for porting here; changes here should be cross-referenced to the private repo. The parity-check GitHub Action posts a soft warning on PRs that touch any of these paths. See HOSTED_ONLY.md for the open-core policy.",
   "direction_of_truth_note": "Parity is BIDIRECTIONAL \u2014 most parity-tracked files flow private \u2192 OSS (private leads on hosted product features), but a growing set flow OSS \u2192 private (auth primitives, messaging primitives, identity-mapping helpers, and cross-codebase substrate ports where OSS is the canonical home per CWS-2026-05-08 lock). When a parity-tracked file changes, identify direction in the PR description; both directions are equally valid. Examples \u2014 OSS-leads / private-lags: `app/auth.py` (X-On-Behalf-Of), counterpart filter on inbox/sent, `app/utils/routing.py` helper, `external_owner` column. Private-leads / OSS-lags: most product features (billing, GDPR, dashboard, Stripe-paid surfaces) \u2014 but those don't appear in parity-manifest by virtue of being hosted-only (see oss_only_exclusions + HOSTED_ONLY.md). Special bidirectional case: `agent_live_sessions` schema port \u2014 private leads on the table itself (richer schema with cmotigtnx attestation), OSS leads on the documentation surface (`docs/multi-session.md`).",
-  "last_full_audit": "2026-05-11",
+  "last_full_audit": "2026-05-12",
   "methodology": "Enumerate app/**/*.py and alembic/**/*.py in cueapi-core; include every file whose same-path counterpart exists in the private cueapi clone at audit time. Files that are OSS-only (no private counterpart) are intentionally excluded \u2014 modifications to them do not need a parity cross-reference.",
   "oss_only_exclusions": [
     {
@@ -55,6 +55,58 @@
     }
   ],
   "multi_key_scoping_omission": "The private monorepo has multi-key scoping (migration 039: api_keys table + per-resource api_key_id columns + audit log). cueapi-core does not. The messaging primitive port intentionally drops the api_key_id columns from agents and messages tables, the from_api_key_id field from MessageResponse, and the api_key_id field from AgentResponse. The messaging service layer never used api_key_id for business logic \u2014 it was an audit-only field. If multi-key scoping is ever ported to OSS, a follow-up migration can ADD COLUMN ... api_key_id at that time without breaking existing deployments.",
+  "field_drift_annotations": {
+    "comment": "Field-level drift from private cueapi/cueapi where the OSS schema diverges. Distinct from oss_only_exclusions (which list whole files). Reviewed 2026-05-12 with cueapi-primary in msg_4ofzmxcjoyu4 (cue-pm CTO-concur relay); primary spec'd the annotation strings verbatim. Surfaced 2026-05-12 by cueapi-secondary during drift audit (#88 hotfix follow-on).",
+    "app/schemas/execution.py + app/models/execution.py": {
+      "deferred_for_port_on_trigger": {
+        "payload_override": {
+          "private_origin": "cueapi/cueapi PR #589 (#577)",
+          "annotation": "DEFERRED \u2014 port planned on trigger (batched Execution-schema sprint OR concrete demand).",
+          "rationale": "Support manual /v1/cues/{id}/fire with override semantics (Phase 18 Gap 7). General-purpose fire-time primitive; OSS self-hosters benefit."
+        },
+        "triggered_by": {
+          "private_origin": "Phase 18 Gap 7 family",
+          "annotation": "DEFERRED \u2014 port planned on trigger (batched Execution-schema sprint OR concrete demand).",
+          "rationale": "Records how an execution was created (poller / manual_fire / etc). Pairs with payload_override visibility on /v1/executions GET."
+        },
+        "payload (effective payload field on ExecutionResponse)": {
+          "private_origin": "cueapi/cueapi PR #589",
+          "annotation": "DEFERRED \u2014 port planned on trigger (batched Execution-schema sprint OR concrete demand).",
+          "rationale": "Effective delivered payload (override if set, else parent cue.payload). Depends on payload_override port. Surfaces what was actually delivered for same-tenant audit / forensics, not just current cue.payload (which drifts as cue is reused)."
+        }
+      },
+      "intentional_hosted_only": {
+        "outcome_state": {
+          "annotation": "INTENTIONAL \u2014 no port planned. Verification primitives are hosted-only.",
+          "rationale": "Tied to verification policy system (Phase 18 Gap 11). Hosted-only endpoints: POST /v1/executions/{id}/verify, /verification-pending; verification_mode config on cues. Column alone without routing endpoints carries no value."
+        },
+        "evidence_external_id": {
+          "annotation": "INTENTIONAL \u2014 no port planned. Verification primitives are hosted-only."
+        },
+        "evidence_result_url": {
+          "annotation": "INTENTIONAL \u2014 no port planned. Verification primitives are hosted-only."
+        },
+        "evidence_artifacts": {
+          "annotation": "INTENTIONAL \u2014 no port planned. Verification primitives are hosted-only."
+        }
+      },
+      "note": "ExecutionResponse in cueapi-core has 13 fields; private cueapi has 18+. The 7 fields above account for the visible drift. Other evidence_* columns (result_ref, result_type, summary, validation_state, produced_at, metadata) ARE in the OSS model but not surfaced through ExecutionResponse \u2014 same intentional hosted-only rationale applies."
+    },
+    "app/schemas/cue.py + app/models/cue.py": {
+      "deferred_contingent_on_589": {
+        "require_payload_override": {
+          "private_origin": "cueapi/cueapi PR #590",
+          "annotation": "DEFERRED \u2014 port after #589 (payload_override) lands; trigger = OSS self-hoster fire-with-override usage signal.",
+          "rationale": "Guards against stale-default-payload anti-pattern (Phase 18 caller-attribution work). Depends on payload_override field landing first \u2014 without it, server-side enforcement has no override to enforce against."
+        },
+        "required_payload_keys": {
+          "private_origin": "cueapi/cueapi PR #590",
+          "annotation": "DEFERRED \u2014 port after #589 (payload_override) lands; trigger = OSS self-hoster fire-with-override usage signal.",
+          "rationale": "Lists payload keys that callers MUST supply via payload_override on /fire. Same prereq as require_payload_override."
+        }
+      }
+    }
+  },
   "files": {
     "alembic": [
       {
