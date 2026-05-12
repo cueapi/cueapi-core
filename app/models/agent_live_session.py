@@ -45,6 +45,7 @@ from __future__ import annotations
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -96,6 +97,21 @@ class AgentLiveSession(Base):
             unique=True,
             postgresql_where=text("detached_at IS NULL"),
         ),
+        # Item B Phase 1 indexes (migration 035): support per-daemon
+        # reconcile + daily transport='poll' cleanup queries.
+        Index("ix_agent_live_sessions_daemon", "daemon_id"),
+        Index(
+            "ix_agent_live_sessions_transport",
+            "transport",
+            "last_reconciled_at",
+        ),
+        # Item B Phase 1 CHECK constraint (migration 035): transport
+        # values restricted to 'ipc' or 'poll'. VARCHAR+CHECK is the
+        # CueAPI convention.
+        CheckConstraint(
+            "transport IN ('ipc', 'poll')",
+            name="valid_transport",
+        ),
     )
 
     id = Column(
@@ -146,6 +162,19 @@ class AgentLiveSession(Base):
     # registrations have NULL; the live-claim validator's phase-1
     # grace accepts bare task_name on existing rows.
     session_token = Column(String(80), nullable=True)
+
+    # Item B Phase 1 columns (migration 035, live-delivery-v3).
+    # NB: existing v2.x rows inherit transport='poll' + NULL on others
+    # — fire-accept dispatcher unchanged unless transport='ipc' is set.
+    ipc_session_token = Column(String(32), nullable=True)
+    transport = Column(
+        String(8),
+        nullable=False,
+        server_default=text("'poll'"),
+        default="poll",
+    )
+    daemon_id = Column(UUID(as_uuid=True), nullable=True)
+    last_reconciled_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(
         DateTime(timezone=True),
