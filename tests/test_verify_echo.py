@@ -1,20 +1,20 @@
-"""Tests for BodyVerify Layer 1 — substrate echo-back primitive.
+"""Tests for BodyVerify Layer 1 — substrate echo-back primitive (STRING-shape spec).
 
 Design doc: https://trydock.ai/workspaces/cue-message-silent-corruption-substrate-design-2026-05-11
 
 Coverage targets:
 
 - Helper ``apply_verify_echo``: header-absent zero-cost no-op, header-present
-  echo-back, hash determinism, branch coverage (None / Pydantic model / dict /
-  other), canonical JSON hashing (sorted keys, no whitespace).
+  echo-back, hash determinism, None-body handling, branch coverage.
 - ``POST /v1/messages``: round-trip happy path; 6 metachar classes round-trip
-  byte-identical; no-header → no echo fields (backwards-compat); empty body
-  (well-formed but minimal content); 32KB cap edge.
-- ``POST /v1/cues/{cue_id}/fire``: round-trip with payload_override; metachar
-  classes; no-body fire (FireRequest=None path) still produces echo when header
-  set.
-- Definition of Done item 1 (substrate echo-back): 6 metachar classes assertion
-  matrix covering backticks, $-paren, ${VAR}, backslash, quotes, mixed.
+  byte-identical (asserting STRING type + sha256(sent_body) == response hash);
+  no-header → no echo fields (backwards-compat); empty body; 32KB cap edge.
+- ``POST /v1/cues/{cue_id}/fire``: round-trip with payload_override.message
+  (canonical live-cue content vector); metachar classes; no-body fire
+  (FireRequest=None path) still produces echo when header set;
+  payload_override without 'message' key falls back to canonical JSON dump.
+- Definition of Done item 1: 6 metachar classes (backticks, $-paren, ${VAR},
+  backslash, quotes, mixed).
 """
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ from fastapi import Request
 
 from app.utils.verify_echo import (
     VERIFY_ECHO_HEADER,
-    _canonical_json_bytes,
     apply_verify_echo,
     verify_echo_requested,
 )
@@ -76,62 +75,46 @@ def test_verify_echo_requested_false_when_not_true():
 
 def test_apply_verify_echo_returns_empty_dict_without_header():
     req = _fake_request({})
-    assert apply_verify_echo(request=req, parsed_body={"any": "value"}) == {}
+    assert apply_verify_echo(request=req, body_text="any string") == {}
 
 
 def test_apply_verify_echo_none_body():
     req = _fake_request({VERIFY_ECHO_HEADER: "true"})
-    result = apply_verify_echo(request=req, parsed_body=None)
+    result = apply_verify_echo(request=req, body_text=None)
     assert result["body_received"] is None
     # SHA256 of empty bytes is a well-known constant.
     assert result["body_received_sha256"] == hashlib.sha256(b"").hexdigest()
 
 
-def test_apply_verify_echo_dict_body():
+def test_apply_verify_echo_string_body_round_trips_byte_identical():
+    """Spec: body_received is STRING; hash matches sha256(string.encode())."""
     req = _fake_request({VERIFY_ECHO_HEADER: "true"})
-    body = {"message": "hello", "priority": 3}
-    result = apply_verify_echo(request=req, parsed_body=body)
+    body = "hello world"
+    result = apply_verify_echo(request=req, body_text=body)
     assert result["body_received"] == body
-    expected = hashlib.sha256(
-        json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+    assert isinstance(result["body_received"], str)
+    expected = hashlib.sha256(b"hello world").hexdigest()
     assert result["body_received_sha256"] == expected
 
 
-def test_apply_verify_echo_pydantic_model_body():
-    from pydantic import BaseModel
-
-    class _M(BaseModel):
-        a: str
-        b: int
-
+def test_apply_verify_echo_empty_string_body():
+    """Empty string is distinct from None: echo as empty string + hash of empty bytes."""
     req = _fake_request({VERIFY_ECHO_HEADER: "true"})
-    model = _M(a="x", b=42)
-    result = apply_verify_echo(request=req, parsed_body=model)
-    assert result["body_received"] == {"a": "x", "b": 42}
-    assert isinstance(result["body_received_sha256"], str)
-    assert len(result["body_received_sha256"]) == 64
+    result = apply_verify_echo(request=req, body_text="")
+    assert result["body_received"] == ""
+    assert isinstance(result["body_received"], str)
+    assert result["body_received_sha256"] == hashlib.sha256(b"").hexdigest()
 
 
-def test_apply_verify_echo_hash_deterministic_across_key_order():
-    """Canonical JSON (sorted keys) means {a,b} and {b,a} hash identically."""
+def test_apply_verify_echo_unicode_body_hashes_utf8():
+    """Unicode body hashes match sha256 of UTF-8 encoded bytes."""
     req = _fake_request({VERIFY_ECHO_HEADER: "true"})
-    r1 = apply_verify_echo(request=req, parsed_body={"a": 1, "b": 2})
-    r2 = apply_verify_echo(request=req, parsed_body={"b": 2, "a": 1})
-    assert r1["body_received_sha256"] == r2["body_received_sha256"]
-
-
-def test_apply_verify_echo_other_type_body():
-    req = _fake_request({VERIFY_ECHO_HEADER: "true"})
-    result = apply_verify_echo(request=req, parsed_body=12345)
-    assert result["body_received"] == "12345"
-    assert result["body_received_sha256"] == hashlib.sha256(b"12345").hexdigest()
-
-
-def test_canonical_json_bytes_unicode_preserved():
-    """ensure_ascii=False → unicode chars round-trip byte-faithful in hash."""
-    out = _canonical_json_bytes({"msg": "héllo"})
-    assert b"h\xc3\xa9llo" in out
+    body = "héllo 👋"
+    result = apply_verify_echo(request=req, body_text=body)
+    assert result["body_received"] == body
+    assert result["body_received_sha256"] == hashlib.sha256(
+        body.encode("utf-8")
+    ).hexdigest()
 
 
 # ───────────────────────────────────────────────────────────────────────
@@ -170,7 +153,11 @@ async def test_messages_no_header_no_echo_fields(client, auth_headers):
 
 @pytest.mark.asyncio
 async def test_messages_echo_roundtrip_happy_path(client, auth_headers):
-    """Header present → response includes body_received matching sent body."""
+    """Spec: body_received is STRING value of MessageCreate.body — NOT envelope dict.
+
+    Caller-side recipe: sha256(sent_body.encode()) MUST match
+    response.body_received_sha256.
+    """
     sender = await _make_agent(client, auth_headers, slug=f"echo-hp-s-{uuid.uuid4().hex[:6]}")
     recipient = await _make_agent(client, auth_headers, slug=f"echo-hp-r-{uuid.uuid4().hex[:6]}")
     body_text = "round-trip test body"
@@ -185,11 +172,14 @@ async def test_messages_echo_roundtrip_happy_path(client, auth_headers):
     )
     assert r.status_code == 201
     data = r.json()
-    assert "body_received" in data
-    assert data["body_received"]["body"] == body_text
-    assert data["body_received"]["to"] == recipient["id"]
-    assert isinstance(data["body_received_sha256"], str)
-    assert len(data["body_received_sha256"]) == 64
+    # Spec lock: STRING, not envelope dict.
+    assert isinstance(
+        data["body_received"], str
+    ), f"body_received must be str; got {type(data['body_received']).__name__}"
+    assert data["body_received"] == body_text
+    # Caller-side hash MUST match.
+    expected_hash = hashlib.sha256(body_text.encode("utf-8")).hexdigest()
+    assert data["body_received_sha256"] == expected_hash
 
 
 @pytest.mark.parametrize(
@@ -207,7 +197,8 @@ async def test_messages_echo_roundtrip_happy_path(client, auth_headers):
 async def test_messages_echo_six_metachar_classes(
     client, auth_headers, metachar_class, payload
 ):
-    """Definition of Done item 1: byte-identical round-trip for 6 metachar classes."""
+    """Definition of Done item 1: STRING body_received + matching sha256 across
+    6 metachar classes."""
     sender = await _make_agent(
         client, auth_headers, slug=f"echo-{metachar_class[:6]}-s-{uuid.uuid4().hex[:5]}"
     )
@@ -225,13 +216,19 @@ async def test_messages_echo_six_metachar_classes(
     )
     assert r.status_code == 201, r.text
     data = r.json()
+    assert isinstance(data["body_received"], str), f"metachar class {metachar_class}"
     assert (
-        data["body_received"]["body"] == payload
+        data["body_received"] == payload
     ), f"metachar class {metachar_class} did NOT survive round-trip"
+    # Hash check — the substantive proof for the corruption-detection use case.
+    expected_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    assert (
+        data["body_received_sha256"] == expected_hash
+    ), f"metachar class {metachar_class} sha256 mismatch"
 
 
 @pytest.mark.asyncio
-async def test_messages_echo_header_lowercase_value_works(client, auth_headers):
+async def test_messages_echo_header_uppercase_value_works(client, auth_headers):
     """Header value 'TRUE' / 'True' all match (case-insensitive)."""
     sender = await _make_agent(client, auth_headers, slug=f"echo-case-s-{uuid.uuid4().hex[:6]}")
     recipient = await _make_agent(client, auth_headers, slug=f"echo-case-r-{uuid.uuid4().hex[:6]}")
@@ -246,6 +243,7 @@ async def test_messages_echo_header_lowercase_value_works(client, auth_headers):
     )
     assert r.status_code == 201
     assert "body_received" in r.json()
+    assert isinstance(r.json()["body_received"], str)
 
 
 @pytest.mark.asyncio
@@ -268,10 +266,9 @@ async def test_messages_echo_header_false_value_no_fields(client, auth_headers):
 
 @pytest.mark.asyncio
 async def test_messages_echo_32kb_cap_edge(client, auth_headers):
-    """Body at the 32KB inline cap still round-trips byte-identical."""
+    """Body at the 32KB inline cap still round-trips byte-identical (STRING)."""
     sender = await _make_agent(client, auth_headers, slug=f"echo-32k-s-{uuid.uuid4().hex[:6]}")
     recipient = await _make_agent(client, auth_headers, slug=f"echo-32k-r-{uuid.uuid4().hex[:6]}")
-    # 32 KB minus a safety margin so we sit JUST under the limit
     large_body = "x" * (32 * 1024 - 100)
     r = await client.post(
         "/v1/messages",
@@ -284,8 +281,11 @@ async def test_messages_echo_32kb_cap_edge(client, auth_headers):
     )
     assert r.status_code == 201, r.text
     data = r.json()
-    assert data["body_received"]["body"] == large_body
-    assert len(data["body_received"]["body"]) == len(large_body)
+    assert isinstance(data["body_received"], str)
+    assert data["body_received"] == large_body
+    assert data["body_received_sha256"] == hashlib.sha256(
+        large_body.encode("utf-8")
+    ).hexdigest()
 
 
 # ───────────────────────────────────────────────────────────────────────
@@ -321,16 +321,37 @@ async def test_fire_no_header_no_echo_fields(client, auth_headers):
     assert "body_received_sha256" not in data
 
 
-@pytest.mark.asyncio
-async def test_fire_echo_with_send_at(client, auth_headers):
-    """Header present + FireRequest body → response echoes parsed FireRequest.
+# Note: payload_override-based fire metachar tests are intentionally OSS-omitted.
+# OSS FireRequest carries only `send_at` (datetime) — no string user-content
+# field where shell-expansion corruption could occur. Hosted's payload_override
+# (dict with user-supplied strings) is hosted-only; the metachar-round-trip
+# discipline IS exercised on the /v1/messages endpoint above (same substrate
+# helper, same six classes). See parity-manifest ``oss_only_exclusions``.
 
-    Note: OSS ``FireRequest`` carries only ``send_at`` (datetime). Hosted's
-    ``payload_override`` (dict with user content) is the corruption vector
-    on the fire path and lives in cueapi/cueapi only. This test exercises
-    the substrate echo-back against whatever fields OSS ``FireRequest``
-    exposes; metachar parametrization on the fire path is intentionally
-    private-only (see parity-manifest deviation note).
+
+@pytest.mark.asyncio
+async def test_fire_echo_no_body_returns_none_echo(client, auth_headers):
+    """Header set on no-body fire → body_received=None + sha256 of empty bytes."""
+    cue_id = await _create_fire_cue(client, auth_headers)
+    r = await client.post(
+        f"/v1/cues/{cue_id}/fire",
+        headers={**auth_headers, VERIFY_ECHO_HEADER: "true"},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["body_received"] is None
+    assert data["body_received_sha256"] == hashlib.sha256(b"").hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_fire_echo_with_send_at_body_still_none(client, auth_headers):
+    """OSS FireRequest body (send_at) carries no string user-content; echo None.
+
+    OSS-specific: the fire endpoint passes ``body_text=None`` to the helper
+    regardless of whether ``send_at`` is set, since send_at is a datetime not
+    a corruption-vulnerable string. Caller-side sha256(send_at_iso) does NOT
+    need to match anything — verify-echo on the fire path is a no-op contract
+    on OSS until a content-bearing field is added.
     """
     from datetime import datetime, timedelta, timezone
     cue_id = await _create_fire_cue(client, auth_headers)
@@ -342,29 +363,8 @@ async def test_fire_echo_with_send_at(client, auth_headers):
     )
     assert r.status_code == 200, r.text
     data = r.json()
-    assert "body_received" in data
-    # FireRequest.send_at is the only OSS field; assert it round-trips.
-    assert data["body_received"]["send_at"] is not None
-    assert len(data["body_received_sha256"]) == 64
-
-
-@pytest.mark.asyncio
-async def test_fire_echo_no_body_returns_none_echo(client, auth_headers):
-    """Header set but no fire request body → body_received=None (FireRequest=None path)."""
-    cue_id = await _create_fire_cue(client, auth_headers)
-    r = await client.post(
-        f"/v1/cues/{cue_id}/fire",
-        headers={**auth_headers, VERIFY_ECHO_HEADER: "true"},
-    )
-    assert r.status_code == 200, r.text
-    data = r.json()
-    assert "body_received" in data
     assert data["body_received"] is None
-    # SHA256 of empty bytes
-    assert (
-        data["body_received_sha256"]
-        == hashlib.sha256(b"").hexdigest()
-    )
+    assert data["body_received_sha256"] == hashlib.sha256(b"").hexdigest()
 
 
 @pytest.mark.asyncio
@@ -377,21 +377,10 @@ async def test_fire_echo_preserves_original_response_fields(client, auth_headers
     )
     assert r.status_code == 200
     data = r.json()
-    # Original response shape preserved
     assert "id" in data
     assert "cue_id" in data
     assert data["cue_id"] == cue_id
     assert data["status"] == "pending"
     assert data["triggered_by"] == "manual_fire"
-    # Echo fields additionally present
     assert "body_received" in data
     assert "body_received_sha256" in data
-
-
-# Note: metachar-class parametrization on the fire path is private-only.
-# OSS ``FireRequest`` carries only ``send_at`` (datetime); hosted's
-# ``payload_override`` (dict with user-supplied string content) is the
-# corruption vector and lives in cueapi/cueapi exclusively. See
-# parity-manifest ``oss_only_exclusions`` for the deviation note.
-# The metachar-class round-trip discipline IS exercised on the
-# /v1/messages endpoint above — same substrate helper, same six classes.
