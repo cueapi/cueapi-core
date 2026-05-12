@@ -381,6 +381,7 @@ CueAPI does one thing: schedules tasks and tells you whether they succeeded.
 | [Configuration](docs/configuration.md) | Every environment variable documented |
 | [Workers](docs/workers.md) | Worker transport setup and scaling |
 | [Production](docs/production.md) | PostgreSQL, Redis, reverse proxy, monitoring |
+| [Body-integrity verification](docs/body-verify.md) | Opt-in echo-back primitive that detects caller-side shell expansion + silent body corruption |
 | [FAQ](docs/faq.md) | Common self-hosting questions |
 
 **Stack:** FastAPI, PostgreSQL 16, Redis 7, Docker
