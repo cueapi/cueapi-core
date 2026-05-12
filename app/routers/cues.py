@@ -89,6 +89,42 @@ async def delete(
     return Response(status_code=204)
 
 
+async def _build_ipc_delivery_metadata(db, cue_id: str):
+    """Item B Phase 1 ASYNC fire-accept dispatcher (Mike Q-B ratify 2026-05-12).
+
+    Stamps ``delivery_mode_requested='ipc'`` on a new execution's
+    ``outcome_metadata`` IFF the cue's target ``agent_live_sessions`` row is
+    currently on ``transport='ipc'`` (i.e. a daemon-IPC attachment is live).
+
+    Returns:
+        - ``{"delivery_mode_requested": "ipc"}`` when an active IPC attachment
+          exists for ``cue_id``
+        - ``None`` otherwise (preserves the default execution.outcome_metadata
+          NULL invariant for non-IPC fires; webhook + worker paths unchanged)
+
+    Per design lock: no inline ack-callback machinery. The daemon ACKs delivery
+    by writing to the existing ``POST /v1/executions/<id>/outcome`` path. The
+    metadata stamp is the *request* signal; actual delivery is async.
+
+    Module-level so pytest-cov traces branches without going through ASGI
+    dispatch (CLAUDE.md ASGI coverage discipline).
+    """
+    from sqlalchemy import select
+    from app.models.agent_live_session import AgentLiveSession
+
+    result = await db.execute(
+        select(AgentLiveSession.id).where(
+            AgentLiveSession.cue_id == cue_id,
+            AgentLiveSession.transport == "ipc",
+            AgentLiveSession.detached_at.is_(None),
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        return None
+    return {"delivery_mode_requested": "ipc"}
+
+
 @router.post("/{cue_id}/fire", status_code=200)
 async def fire_cue(
     cue_id: str,
@@ -132,9 +168,16 @@ async def fire_cue(
     is_scheduled = effective_scheduled_for > now
 
     execution_id = uuid_mod.uuid4()
+    # Item B Phase 1: ASYNC fire-accept IPC routing (Mike Q-B ratify
+    # 2026-05-12 ~00:38Z, ported from cueapi/cueapi#805). If the cue's
+    # target agent_live_sessions row is on transport='ipc', stamp the
+    # execution's outcome_metadata with delivery_mode_requested='ipc'.
+    # Helper is pure + module-level (CLAUDE.md ASGI coverage discipline).
+    ipc_outcome_metadata = await _build_ipc_delivery_metadata(db, cue.id)
     execution = Execution(
         id=execution_id, cue_id=cue.id, scheduled_for=effective_scheduled_for,
         status="pending", triggered_by="manual_fire",
+        outcome_metadata=ipc_outcome_metadata,
     )
     db.add(execution)
 

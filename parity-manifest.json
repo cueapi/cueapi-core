@@ -242,6 +242,13 @@
         "last_synced": "2026-05-11",
         "ported_in": "item-2b-cursor-advance-ack-port",
         "deviation": "Renumbered 062 \u2192 034. Schema verbatim: subscriptions.last_acked_event_id BIGINT NULL."
+      },
+      {
+        "path": "alembic/versions/035_agent_live_sessions_ipc_attachment.py",
+        "private_counterpart": "alembic/versions/063_agent_live_sessions_ipc_attachment.py",
+        "last_synced": "2026-05-12",
+        "ported_in": "item-b-phase-1-substrate",
+        "deviation": "OSS renumber 063\u2192035 (OSS alembic head was 034 when ported; private chain at 064 post-rebase). down_revision adjusted accordingly."
       }
     ],
     "app_core": [
@@ -268,8 +275,8 @@
       {
         "path": "app/main.py",
         "private_counterpart": "app/main.py",
-        "last_synced": "2026-05-11",
-        "ported_in": "bodyverify-layer-1-5-universal-middleware",
+        "last_synced": "2026-05-12",
+        "ported_in": "bodyverify-layer-1-5-universal-middleware + item-b-phase-1-substrate",
         "deviation": "BodyVerify port: VerifyEchoMiddleware registered between CORS/RequestId and RateLimit. Private has additional middlewares (SecurityHeaders, AccessAudit) hosted-only; ordering preserved relative to shared middlewares."
       },
       {
@@ -405,9 +412,9 @@
       {
         "path": "app/routers/cues.py",
         "private_counterpart": "app/routers/cues.py",
-        "last_synced": "2026-05-11",
-        "ported_in": "bodyverify-layer-1-substrate-echo-back",
-        "deviation": "BodyVerify port: fire_cue handler integrates apply_verify_echo on response. OSS FireRequest carries only send_at; private's payload_override (dict with user-supplied string content carrying corruption-vector) is hosted-only. Metachar-class parametrization tests on the fire path are intentionally private-only \u2014 substrate helper coverage is exercised via messages endpoint tests. BodyVerify hotfix: helper takes body_text=None on OSS (no string user-content field on FireRequest)."
+        "last_synced": "2026-05-12",
+        "ported_in": "bodyverify-layer-1-substrate-echo-back + item-b-phase-1-substrate",
+        "deviation": "BodyVerify port: fire_cue handler integrates apply_verify_echo on response. OSS FireRequest carries only send_at; private's payload_override (dict with user-supplied string content carrying corruption-vector) is hosted-only. Metachar-class parametrization tests on the fire path are intentionally private-only \u2014 substrate helper coverage is exercised via messages endpoint tests. BodyVerify hotfix: helper takes body_text=None on OSS (no string user-content field on FireRequest). Item B Phase 1: added _build_ipc_delivery_metadata helper + outcome_metadata stamping for transport=ipc agent_live_sessions."
       },
       {
         "path": "app/routers/device_code.py",
@@ -463,6 +470,12 @@
         "last_synced": "2026-05-11",
         "ported_in": "event-emit-primitive-port (PR-1b) + long-poll-port (PR-1b spec Q1) + item-1-inline-body-port + item-2b-cursor-advance-ack-port",
         "deviation": "Long-poll uses internal polling loop rather than PostgreSQL LISTEN/NOTIFY per impl trade-off; wire contract identical. Future LISTEN/NOTIFY swap tracked at cmp0m7n7r (private) \u2014 file OSS counterpart row when prioritized. Item 1 addition: SubscriptionCreate accepts inline_body field; SubscriptionResponse surfaces it. Item 2(b) addition: PATCH /subscriptions/{id}/ack endpoint + AckSubscriptionRequest schema + _advance_ack_after_pull helper + last_acked_event_id surfaced on SubscriptionResponse."
+      },
+      {
+        "path": "app/routers/ipc_attachments.py",
+        "private_counterpart": "app/routers/ipc_attachments.py",
+        "last_synced": "2026-05-12",
+        "ported_in": "item-b-phase-1-substrate"
       }
     ],
     "schemas": [
@@ -509,6 +522,12 @@
         "last_synced": "2026-05-11",
         "ported_in": "messaging-primitive-port + messaging-emission-port (PR-2a)",
         "deviation": "from_api_key_id field omitted from MessageResponse (multi-key scoping is hosted-only). PR-2a additions verbatim: correlation_id on MessageCreate; correlation_id + dispatch_priority_bucket + message_dispatch_error on MessageResponse."
+      },
+      {
+        "path": "app/schemas/ipc_attachment.py",
+        "private_counterpart": "app/schemas/ipc_attachment.py",
+        "last_synced": "2026-05-12",
+        "ported_in": "item-b-phase-1-substrate"
       }
     ],
     "services": [
@@ -596,6 +615,12 @@
         "last_synced": "2026-05-11",
         "ported_in": "event-emit-primitive-port (PR-1b) + phase-4b-digest-batching-port + item-2a-turn-pass-port + item-1-inline-body-port + item-2b-cursor-advance-ack-port",
         "deviation": "Phase 4b addition: `message.digest` added to KNOWN_EVENT_TYPES registry. Item 2(a) addition: `turn.pass` added \u2014 META-only envelope for inbox-watcher recipes. Item 1 addition: INLINE_BODY_MAX_BYTES constant (32KB) + `_maybe_embed_body` pure helper + emit_event accepts body_text=None kwarg + create_subscription accepts inline_body=False kwarg. Body embedding gated on active subscription's inline_body=True; size guardrail with body_omitted flag for >32KB bodies. Item 2(b) addition: advance_ack_watermark + ack_subscription service helpers with watermark monotonicity (never rewinds)."
+      },
+      {
+        "path": "app/services/ipc_attachment_service.py",
+        "private_counterpart": "app/services/ipc_attachment_service.py",
+        "last_synced": "2026-05-12",
+        "ported_in": "item-b-phase-1-substrate"
       }
     ],
     "utils": [
