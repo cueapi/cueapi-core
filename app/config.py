@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     BASE_URL: str = "http://localhost:8000"
     ALLOW_REGISTER: bool = True
     RESEND_API_KEY: str = ""
-    RESEND_FROM_EMAIL: str = "CueAPI <noreply@cueapi.ai>"
+    RESEND_FROM_EMAIL: str = "CueAPI <noreply@mail.cueapi.ai>"
     WORKER_HEARTBEAT_TIMEOUT_SECONDS: int = 180
     WORKER_CLAIM_TIMEOUT_SECONDS: int = 900
     WORKER_UNCLAIMED_TIMEOUT_SECONDS: int = 900
